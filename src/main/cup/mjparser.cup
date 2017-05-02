@@ -14,7 +14,7 @@ parser code  {:
 	public static int constCount = 0;
 	public static int globalArrayVarCount = 0;
 	public static boolean globalRange = false;
-	public static boolean mainRange = false;
+	public static boolean mainScope = false;
 
 	private static boolean errorReported = false;
 	private static final Logger logger = LogManager.getLogger(Parser.class);
@@ -96,7 +96,9 @@ terminal EQ, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ;
 non terminal program;
 non terminal declarations;
 non terminal constdeclaration, constdeclarators, constdeclarator, literal;
-non terminal vardeclarations, vardeclaration, vardeclarators, vardeclarator, brackopt;
+non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator, globalbrackopt;
+non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator, localbrackopt;
+non terminal classvardeclarations, classvardeclaration, classvardeclarators, classvardeclarator, classbrackopt;
 non terminal classdeclaration, classbody, superopt, classbodymethods;
 non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, methodreturntype, staticopt;
 non terminal formalparameteropt, formalparameter, formalparameters;
@@ -124,7 +126,7 @@ program ::= PROGRAM IDENTIFIER declarations LBRACE methoddeclarations RBRACE
 	;
 
 declarations ::= declarations constdeclaration
-	| declarations  {: parser.globalRange = true; :} vardeclaration {: parser.globalRange = false; :}
+	| declarations  globalvardeclaration
 	| declarations classdeclaration
 	| /* epsilon */
 	;
@@ -144,52 +146,74 @@ literal ::= INTEGER_LITERAL
 	;
 
 /* VarDecl */
-vardeclarations ::= vardeclarations vardeclaration
+
+// global vars 
+globalvardeclaration ::= type globalvardeclarators SEMICOLON
+	| type error SEMICOLON:l
+	{:
+		parser.report_error("Error recovery done till ';' on line " + lleft, null); 
+	:}
+	;
+globalvardeclarators ::= globalvardeclarators COMMA globalvardeclarator
+	| error COMMA:l globalvardeclarator 
+	{: 
+		parser.report_error("Error recovery done till ',' on line " + lleft, null); 
+	:}
+	| globalvardeclarator
+	;
+globalvardeclarator ::= IDENTIFIER globalbrackopt
+	;
+globalbrackopt ::= LBRACK RBRACK
+	{:
+		parser.globalArrayVarCount++;
+	:}
+	| /* epsilon */
+	{:
+		parser.globalVarCount++;
+	:}
+	;
+
+// local vars
+localvardeclarations ::= localvardeclarations localvardeclaration
 	| /* epsilon */
 	;
-vardeclaration ::= type vardeclarators SEMICOLON
-	| type error SEMICOLON:l 
-	{: 
-		if(parser.globalRange || parser.mainRange) { 
-			parser.report_error("Error recovery done till ';' on line " + lleft, null); 
-		} else {
-			parser.unrecovered_syntax_error(null); 
-		} 
+localvardeclaration ::= type localvardeclarators SEMICOLON
+	| type error SEMICOLON:l
+	{:
+		parser.report_error("Error recovery done till ';' on line " + lleft, null); 
 	:}
 	| type error:l 
 	{: 
-		if(parser.mainRange) {
-			parser.report_error("Error recovery done till '{' on line " + lleft, null); 
-		} else {
-			parser.unrecovered_syntax_error(null); 
-		} 
+		parser.report_error("Error recovery done till '{' on line " + lleft, null); 
 	:}
 	;
-vardeclarators ::= vardeclarators COMMA vardeclarator
-	| error COMMA:l vardeclarator 
-	{: 
-		if(parser.globalRange) { 
-			parser.report_error("Error recovery done till ',' on line " + lleft, null); 
+localvardeclarators ::= localvardeclarators COMMA localvardeclarator
+	| localvardeclarator
+	;
+localvardeclarator ::= IDENTIFIER localbrackopt
+	;
+localbrackopt ::= LBRACK RBRACK
+	| /* epsilon */ 
+	{:
+		if(parser.mainScope) {
+			parser.mainVarCount++;
 		}
 	:}
-	| vardeclarator
 	;
-vardeclarator ::= IDENTIFIER brackopt
+
+//class fields
+classvardeclarations ::= classvardeclarations classvardeclaration
+	| /* epsilon */
 	;
-brackopt ::= LBRACK RBRACK 
-	{: 
-		if(parser.globalRange) { 
-			parser.globalArrayVarCount++; 
-		} 
-	:}
-	| /* epsilon */ 
-	{: 
-		if(parser.globalRange) { 
-			parser.globalVarCount++; 
-		} else if(parser.mainRange) {
-			parser.mainVarCount++; 
-		} 
-	:}
+classvardeclaration ::= type classvardeclarators SEMICOLON
+	;
+classvardeclarators ::= classvardeclarators COMMA classvardeclarator
+	| classvardeclarator
+	;
+classvardeclarator ::= IDENTIFIER classbrackopt
+	;
+classbrackopt ::= LBRACK RBRACK
+	| /* epsilon */
 	;
 
 /* ClassDecl */
@@ -198,7 +222,7 @@ classdeclaration ::= CLASS IDENTIFIER superopt classbody
 superopt ::= EXTENDS type
 	| /* epsilon */
 	;
-classbody ::= LBRACE vardeclarations classbodymethods RBRACE
+classbody ::= LBRACE classvardeclarations classbodymethods RBRACE
 	;
 classbodymethods ::= LBRACE methoddeclarations RBRACE
 	| /* epsilon */
@@ -210,7 +234,7 @@ methoddeclarations ::= methoddeclarations methoddeclaration
 	;
 methoddeclaration ::= methodheader methodbody
 	;
-methodheader ::= staticopt methodreturntype IDENTIFIER:i {: if(i.equals("main")) { parser.mainRange = true; } :} LPAREN formalparameteropt RPAREN 
+methodheader ::= staticopt methodreturntype IDENTIFIER:i {: if(i.equals("main")) { parser.mainScope = true; } :} LPAREN formalparameteropt RPAREN 
 	;
 staticopt ::= STATIC
 	|  /* epsilon  */
@@ -218,7 +242,7 @@ staticopt ::= STATIC
 methodreturntype ::= VOID 
 	| type
 	;
-methodbody ::= vardeclarations LBRACE statements RBRACE {: parser.mainRange = false; :} 
+methodbody ::= localvardeclarations LBRACE statements RBRACE {: parser.mainScope = false; :} 
 	;
 
 /* FormPars */

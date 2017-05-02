@@ -27,7 +27,6 @@ int b[];
 Table val;
 {
 	void main()
-    int test+;
 	int x,i;
 	{
 		//‐‐‐‐‐‐‐‐‐‐ Initialize val
