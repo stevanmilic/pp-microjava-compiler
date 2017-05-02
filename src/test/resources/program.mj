@@ -24,10 +24,10 @@ class Table {
 }
 Table val;
 {
-	void
-		main()
-		int x,i;
-	{ //‐‐‐‐‐‐‐‐‐‐ Initialize val
+	void main()
+	int x,i;
+	{
+		//‐‐‐‐‐‐‐‐‐‐ Initialize val
 		val=new Table;
 		val.pos=new int[size];
 		val.neg=new int[size];
@@ -49,5 +49,6 @@ Table val;
 					val.putn(val.getn(-x)+1);
 				}
 			read(x);
-		}}
+		}
+	}
 }

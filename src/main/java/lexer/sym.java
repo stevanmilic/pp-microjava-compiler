@@ -29,15 +29,15 @@ public class sym {
 	public static final int NULL_LITERAL = 20;
 
 	//Separators
-    public static final int SEMICOLON = 27;
-    public static final int COMMA = 28;
-    public static final int DOT = 29;
-    public static final int LPAREN = 21;
-    public static final int RPAREN = 22;
-    public static final int LBRACK = 25;
-    public static final int RBRACK = 26;
-    public static final int LBRACE = 23;
-    public static final int RBRACE = 24;
+    public static final int SEMICOLON = 21;
+    public static final int COMMA = 22;
+    public static final int DOT = 23;
+    public static final int LPAREN = 24;
+    public static final int RPAREN = 25;
+    public static final int LBRACK = 26;
+    public static final int RBRACK = 27;
+    public static final int LBRACE = 28;
+    public static final int RBRACE = 29;
 
 	// Arithmetic Operators
 	public static final int PLUS = 30;
@@ -70,5 +70,4 @@ public class sym {
     public static final int MODEQ = 51;
 
 	public static final int EOF = 52;
-
 }

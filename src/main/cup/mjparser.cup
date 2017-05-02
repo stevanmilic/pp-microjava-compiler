@@ -1,0 +1,328 @@
+import java_cup.runtime.*;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+parser code  {:
+
+	public int varCount = 0;
+	public int localVarCount = 0;
+	public int constCount = 0;
+	public int arrayVarCount = 0;
+	
+	Logger logger = LogManager.getLogger(getClass());
+
+	public void syntax_error(Symbol symbol) {
+			report_error("Syntax error:", symbol);
+	}
+
+	public void unrecovered_syntax_error(Symbol symbol) throws java.lang.Exception {
+			report_fatal_error("Fatal error, stopping with parsing the file", symbol);
+	}
+
+	public void report_fatal_error(String message, Object info) throws java.lang.Exception {
+		done_parsing();
+		report_error(message, info);
+	}
+
+	public void report_error(String message, Object info) {
+		StringBuilder stringBuilder = new StringBuilder(message); 
+		if (info instanceof Symbol){
+			Symbol symbol = (Symbol) info;
+			stringBuilder.append(" on line: ").append(symbol.left)
+				.append(", near token: ").append(symbol.value.toString());
+		}
+		logger.error(stringBuilder.toString());
+	}
+:}
+
+scan with {:
+	Symbol symbol = this.getScanner().next_token();
+	if (symbol != null && symbol.value != null) 
+		logger.info(symbol.value.toString());
+	return symbol;
+:}
+
+terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
+terminal String IDENTIFIER;
+terminal Integer INTEGER_LITERAL;
+terminal Char CHAR_LITERAL;
+terminal BOOL_LITERAL, NULL_LITERAL;
+terminal SEMICOLON, COMMA, DOT, LPAREN, RPAREN, LBRACK, RBRACK, LBRACE, RBRACE;
+terminal PLUS, MINUS, MULT, DIV, MOD, PLUSPLUS, MINUSMINUS;
+terminal EQEQ, NOTEQ, GT, LT, GTEQ, LTEQ;
+terminal ANDAND, OROR, NOT;
+terminal EQ, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ;
+
+non terminal program;
+non terminal declarations;
+non terminal constdeclaration, constdeclarators, constdeclarator, literal;
+non terminal vardeclarations, vardeclaration, vardeclarators, vardeclarator, brackopt;
+non terminal classdeclaration, classbody, superopt, classbodymethods;
+non terminal methoddeclaration, methoddeclarations, methodreturntype, staticopt;
+non terminal formalparameteropt, formalparameter, formalparameters;
+non terminal type;
+non terminal statements, statement;
+non terminal ifstatement, ifelsestatement;
+non terminal forstatement, designatorstatementopt, conditionopt;
+non terminal returnstatement, expressionopt;
+non terminal readstatement, printstatement, integerliteralopt;
+non terminal designatorstatement, designatorstatementexpr, actparametersopt;
+non terminal actparameters;
+non terminal condition, conditionfact, conditionterm, conditionfactopt;
+non terminal expression, minusopt;
+non terminal term;
+non terminal factor, factoractparamsopt, newexpressionopt;
+non terminal designator, identorexprlist, identorexpr;
+non terminal assignoperator, reloperator;
+non terminal addoperator, addoperatorleft, addoperatorright;
+non terminal muloperator, muloperatorleft, muloperatorright;
+
+precedence left ELSE;
+
+/* Program */
+program ::= PROGRAM IDENTIFIER declarations LBRACE methoddeclarations RBRACE
+	;
+
+declarations ::= declarations constdeclaration
+	| declarations vardeclaration
+	| declarations classdeclaration
+	| /* epsilon */
+	;
+
+/* ConstDecl */
+constdeclaration ::= CONST type constdeclarators SEMICOLON
+	;
+constdeclarators ::= constdeclarators COMMA constdeclarator
+	| constdeclarator
+	;
+constdeclarator ::= IDENTIFIER EQ literal {: parser.constCount++; :}
+	;
+literal ::= INTEGER_LITERAL 
+	| CHAR_LITERAL 
+	| BOOL_LITERAL 
+	| NULL_LITERAL
+	;
+
+/* VarDecl */
+vardeclarations ::= vardeclarations vardeclaration
+	| /* epsilon */
+	;
+vardeclaration ::= type vardeclarators SEMICOLON
+	;
+vardeclarators ::= vardeclarators COMMA vardeclarator
+	| vardeclarator
+	;
+vardeclarator ::= IDENTIFIER brackopt
+	;
+brackopt ::= LBRACK RBRACK
+	| /* epsilon */
+	;
+
+/* ClassDecl */
+classdeclaration ::= CLASS IDENTIFIER superopt classbody
+	;
+superopt ::= EXTENDS type
+	| /* epsilon */
+	;
+classbody ::= LBRACE vardeclarations classbodymethods RBRACE
+	;
+classbodymethods ::= LBRACE methoddeclarations RBRACE
+	| /* epsilon */
+	;
+
+/* MethodDecl */
+methoddeclarations ::= methoddeclarations methoddeclaration
+	| /* epsilon */
+	;
+methoddeclaration ::= staticopt methodreturntype IDENTIFIER LPAREN formalparameteropt RPAREN vardeclarations LBRACE statements RBRACE
+	;
+staticopt ::= STATIC
+	|  /* epsilon  */
+	;
+methodreturntype ::= VOID 
+	| type
+	;
+
+/* FormPars */
+formalparameteropt ::= formalparameters
+	| /* epsilon */
+	;
+
+formalparameters ::= formalparameter
+	| formalparameters COMMA formalparameter
+	;
+
+formalparameter ::= type IDENTIFIER
+	| type IDENTIFIER LBRACK RBRACK
+	;
+
+/* Type */
+type ::= IDENTIFIER
+	;
+
+/* Statement */
+statements ::= statements statement
+	| /* epsilon */
+	;
+
+statement ::= designatorstatement SEMICOLON
+	| ifstatement
+	| ifelsestatement
+	| forstatement
+	| BREAK SEMICOLON
+	| CONTINUE SEMICOLON
+	| returnstatement
+	| readstatement
+	| printstatement
+	| LBRACE statements RBRACE
+	;
+
+ifstatement ::= IF LPAREN condition RPAREN statement
+	;
+ifelsestatement ::= IF LPAREN condition RPAREN statement ELSE statement
+	;
+
+forstatement ::= FOR LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLON 
+	designatorstatementopt RPAREN statement
+	;
+designatorstatementopt ::= designatorstatement
+	| /* epsilon */
+	;
+conditionopt ::= condition
+	| /* epsilon */
+	;
+
+returnstatement ::= RETURN expressionopt SEMICOLON
+	;
+expressionopt ::= expression
+	| /*epsilon */
+	;
+
+readstatement ::= READ LPAREN designator RPAREN SEMICOLON
+	;
+
+printstatement ::= PRINT LPAREN expression integerliteralopt RPAREN SEMICOLON
+	;
+integerliteralopt ::= COMMA INTEGER_LITERAL
+	| /* epsilon */
+	;
+
+/* DesignatorStatement */
+designatorstatement ::= designator designatorstatementexpr
+	;
+designatorstatementexpr ::= assignoperator expression 
+	| LPAREN actparametersopt RPAREN 
+	| PLUSPLUS 
+	| MINUSMINUS 
+	;
+actparametersopt ::= actparameters
+	| /* epsilon */
+	;
+
+/* ActPars */
+actparameters ::= actparameters COMMA expression
+	| expression
+	;
+
+/* Condition */
+condition ::= condition OROR conditionterm
+	| conditionterm
+	;
+
+/* CondTerm */
+conditionterm ::= conditionterm ANDAND conditionfact
+	| conditionfact
+	;
+
+/* CondFact */
+conditionfact ::= expression conditionfactopt
+	;
+conditionfactopt ::= reloperator expression
+	| /* epsilon */
+	;
+
+/* Expr */
+expression ::= expression addoperator term 
+	| minusopt term
+	;
+minusopt ::= MINUS
+	| /* epsilon*/
+	;
+
+/* Term */
+term ::= term muloperator factor 
+	| factor 
+	;
+
+/* Factor */
+factor ::= designator factoractparamsopt
+	| INTEGER_LITERAL
+	| CHAR_LITERAL
+	| BOOL_LITERAL
+	| NEW type newexpressionopt
+	| LPAREN expression RPAREN
+	;
+factoractparamsopt ::= LPAREN actparametersopt RPAREN
+	| /* epsilon */
+	;
+newexpressionopt ::= LBRACK expression RBRACK
+	| /* epsilon */
+	;
+
+/* Designator */
+designator ::= IDENTIFIER identorexprlist
+	;
+identorexprlist ::= identorexprlist identorexpr
+	| /* epsilon */
+	;
+identorexpr ::= DOT IDENTIFIER 
+	| LBRACK expression RBRACK
+	;
+
+/* Assignop */
+assignoperator ::= EQ
+	| addoperatorright
+	| muloperatorright
+	;
+
+/* Relop */
+reloperator ::= EQEQ
+	| NOTEQ
+	| GT
+	| GTEQ
+	| LT
+	| LTEQ
+	;
+
+/* Addop */
+addoperator ::= addoperatorleft
+ | addoperatorright
+ ;
+
+/* AddopLeft */
+addoperatorleft ::= PLUS
+	| MINUS
+	;
+
+/* AddopRight */
+addoperatorright ::= PLUSEQ
+	| MINUSEQ
+	;
+
+/* Mulop */
+muloperator ::= muloperatorleft
+	| muloperatorright
+	;
+
+/* MulopLeft */
+muloperatorleft ::= MULT
+	| DIV
+	| MOD
+	;
+
+/* MulopRight */
+muloperatorright ::= MULTEQ
+	| DIVEQ
+	| MODEQ
+	;

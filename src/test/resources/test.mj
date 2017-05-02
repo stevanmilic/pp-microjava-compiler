@@ -1,0 +1,3 @@
+program P
+const int size=10;
+{}
