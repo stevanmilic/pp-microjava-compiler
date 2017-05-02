@@ -1,7 +1,7 @@
 package lexer;
 
 import java_cup.runtime.*;
-
+//import parser.sym;
 %%
 
 %public
@@ -94,7 +94,6 @@ IntegerLiteral = 0 | [1-9][0-9]*
 
 	"&&"             { return symbol(sym.ANDAND, yytext()); }
 	"||"             { return symbol(sym.OROR, yytext()); }
-	"!"              { return symbol(sym.NOT, yytext()); }
 
 	"="              { return symbol(sym.EQ, yytext()); }
 	"+="             { return symbol(sym.PLUSEQ, yytext()); }

@@ -1,16 +1,50 @@
 import java_cup.runtime.*;
+import lexer.Lexer;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+
 parser code  {:
 
-	public int varCount = 0;
-	public int localVarCount = 0;
-	public int constCount = 0;
-	public int arrayVarCount = 0;
-	
-	Logger logger = LogManager.getLogger(getClass());
+	public static int globalVarCount = 0;
+	public static int mainVarCount = 0;
+	public static int constCount = 0;
+	public static int globalArrayVarCount = 0;
+	public static boolean globalRange = false;
+	public static boolean mainRange = false;
+
+	private static boolean errorReported = false;
+	private static final Logger logger = LogManager.getLogger(Parser.class);
+
+	public static void main(String argv[]) {
+		try(BufferedReader reader = new BufferedReader(new FileReader(argv[0]))){
+
+				logger.info("Parsing source file: " + argv[0]);
+
+				Lexer lexer = new Lexer(reader);
+				Parser parser = new Parser(lexer);
+
+				Symbol symbol = parser.parse();
+
+				logger.info("============= Syntax analysis =============");
+				logger.info("Global variables:" + parser.globalVarCount);
+				logger.info("Local variables in main:" + parser.mainVarCount);
+				logger.info("Global constants:" + parser.constCount);
+				logger.info("Global arrays:" + parser.globalArrayVarCount);
+
+				if(parser.errorReported){
+					logger.info("Source file contains error(s)!");
+				} else {
+					logger.info("Source file successfully parsed!");
+				}
+
+		} catch (Exception e) {
+				e.printStackTrace();
+		}
+	}
 
 	public void syntax_error(Symbol symbol) {
 			report_error("Syntax error:", symbol);
@@ -26,22 +60,27 @@ parser code  {:
 	}
 
 	public void report_error(String message, Object info) {
+		errorReported = true;
 		StringBuilder stringBuilder = new StringBuilder(message); 
 		if (info instanceof Symbol){
 			Symbol symbol = (Symbol) info;
-			stringBuilder.append(" on line: ").append(symbol.left)
-				.append(", near token: ").append(symbol.value.toString());
+			if(symbol.value != null){
+				stringBuilder.append(" on line ").append(symbol.left)
+					.append(", near token '").append(symbol.value.toString()).append("'");
+			} else {
+				stringBuilder.append(" on line ").append(symbol.left);
+			}
 		}
-		logger.error(stringBuilder.toString());
+		logger.debug(stringBuilder.toString());
 	}
 :}
 
-scan with {:
-	Symbol symbol = this.getScanner().next_token();
-	if (symbol != null && symbol.value != null) 
-		logger.info(symbol.value.toString());
-	return symbol;
-:}
+/* scan with {: */
+/* 	Symbol symbol = this.getScanner().next_token(); */
+/* 	if (symbol != null && symbol.value != null)  */
+/* 		logger.debug(symbol.value.toString()); */
+/* 	return symbol; */
+/* :} */
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
 terminal String IDENTIFIER;
@@ -51,7 +90,7 @@ terminal BOOL_LITERAL, NULL_LITERAL;
 terminal SEMICOLON, COMMA, DOT, LPAREN, RPAREN, LBRACK, RBRACK, LBRACE, RBRACE;
 terminal PLUS, MINUS, MULT, DIV, MOD, PLUSPLUS, MINUSMINUS;
 terminal EQEQ, NOTEQ, GT, LT, GTEQ, LTEQ;
-terminal ANDAND, OROR, NOT;
+terminal ANDAND, OROR;
 terminal EQ, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ;
 
 non terminal program;
@@ -59,7 +98,7 @@ non terminal declarations;
 non terminal constdeclaration, constdeclarators, constdeclarator, literal;
 non terminal vardeclarations, vardeclaration, vardeclarators, vardeclarator, brackopt;
 non terminal classdeclaration, classbody, superopt, classbodymethods;
-non terminal methoddeclaration, methoddeclarations, methodreturntype, staticopt;
+non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, methodreturntype, staticopt;
 non terminal formalparameteropt, formalparameter, formalparameters;
 non terminal type;
 non terminal statements, statement;
@@ -85,7 +124,7 @@ program ::= PROGRAM IDENTIFIER declarations LBRACE methoddeclarations RBRACE
 	;
 
 declarations ::= declarations constdeclaration
-	| declarations vardeclaration
+	| declarations  {: parser.globalRange = true; :} vardeclaration {: parser.globalRange = false; :}
 	| declarations classdeclaration
 	| /* epsilon */
 	;
@@ -109,14 +148,48 @@ vardeclarations ::= vardeclarations vardeclaration
 	| /* epsilon */
 	;
 vardeclaration ::= type vardeclarators SEMICOLON
+	| type error SEMICOLON:l 
+	{: 
+		if(parser.globalRange || parser.mainRange) { 
+			parser.report_error("Error recovery done till ';' on line " + lleft, null); 
+		} else {
+			parser.unrecovered_syntax_error(null); 
+		} 
+	:}
+	| type error:l 
+	{: 
+		if(parser.mainRange) {
+			parser.report_error("Error recovery done till '{' on line " + lleft, null); 
+		} else {
+			parser.unrecovered_syntax_error(null); 
+		} 
+	:}
 	;
 vardeclarators ::= vardeclarators COMMA vardeclarator
+	| error COMMA:l vardeclarator 
+	{: 
+		if(parser.globalRange) { 
+			parser.report_error("Error recovery done till ',' on line " + lleft, null); 
+		}
+	:}
 	| vardeclarator
 	;
 vardeclarator ::= IDENTIFIER brackopt
 	;
-brackopt ::= LBRACK RBRACK
-	| /* epsilon */
+brackopt ::= LBRACK RBRACK 
+	{: 
+		if(parser.globalRange) { 
+			parser.globalArrayVarCount++; 
+		} 
+	:}
+	| /* epsilon */ 
+	{: 
+		if(parser.globalRange) { 
+			parser.globalVarCount++; 
+		} else if(parser.mainRange) {
+			parser.mainVarCount++; 
+		} 
+	:}
 	;
 
 /* ClassDecl */
@@ -135,13 +208,17 @@ classbodymethods ::= LBRACE methoddeclarations RBRACE
 methoddeclarations ::= methoddeclarations methoddeclaration
 	| /* epsilon */
 	;
-methoddeclaration ::= staticopt methodreturntype IDENTIFIER LPAREN formalparameteropt RPAREN vardeclarations LBRACE statements RBRACE
+methoddeclaration ::= methodheader methodbody
+	;
+methodheader ::= staticopt methodreturntype IDENTIFIER:i {: if(i.equals("main")) { parser.mainRange = true; } :} LPAREN formalparameteropt RPAREN 
 	;
 staticopt ::= STATIC
 	|  /* epsilon  */
 	;
 methodreturntype ::= VOID 
 	| type
+	;
+methodbody ::= vardeclarations LBRACE statements RBRACE {: parser.mainRange = false; :} 
 	;
 
 /* FormPars */
@@ -212,6 +289,7 @@ integerliteralopt ::= COMMA INTEGER_LITERAL
 designatorstatement ::= designator designatorstatementexpr
 	;
 designatorstatementexpr ::= assignoperator expression 
+	| assignoperator error:l {: parser.report_error("Error recovery done till ';' on line " + lleft, null); :}
 	| LPAREN actparametersopt RPAREN 
 	| PLUSPLUS 
 	| MINUSMINUS 

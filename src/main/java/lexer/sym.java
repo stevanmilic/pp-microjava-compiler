@@ -59,15 +59,14 @@ public class sym {
 	// Logical Operators
 	public static final int ANDAND = 43;
 	public static final int OROR = 44;
-	public static final int NOT = 45;
 
 	// Assignment Operators
-	public static final int EQ = 46;
-	public static final int PLUSEQ = 47;
-    public static final int MINUSEQ = 48;
-    public static final int MULTEQ = 49;
-    public static final int DIVEQ = 50;
-    public static final int MODEQ = 51;
+	public static final int EQ = 45;
+	public static final int PLUSEQ = 46;
+    public static final int MINUSEQ = 47;
+    public static final int MULTEQ = 48;
+    public static final int DIVEQ = 59;
+    public static final int MODEQ = 50;
 
-	public static final int EOF = 52;
+	public static final int EOF = 51;
 }

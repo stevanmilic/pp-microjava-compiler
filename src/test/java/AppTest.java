@@ -6,8 +6,7 @@ import lexer.Lexer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Test;
-import parser.Parser;
-import parser.sym;
+import lexer.sym;
 
 import java.io.*;
 
@@ -19,7 +18,7 @@ public class AppTest {
     public void testLexer() {
         try(BufferedReader reader = new BufferedReader(new FileReader("src/test/resources/program.mj"))){
 
-            logger.info("Lexing source file: program.mj");
+            logger.info("Beginning lexical analysis on file: program.mj");
 
             Lexer lexer = new Lexer(reader);
 
@@ -30,24 +29,6 @@ public class AppTest {
             logger.info("No errors!");
 
         } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Test
-    public void testParser(){
-        try(BufferedReader reader = new BufferedReader(new FileReader("src/test/resources/program.mj"))){
-
-            logger.info("Parsing source file: program.mj");
-
-            Lexer lexer = new Lexer(reader);
-            Parser parser = new Parser(lexer);
-
-            Symbol symbol = parser.parse();
-
-            logger.info("Global constants:" + parser.constCount);
-
-        } catch (Exception e) {
             e.printStackTrace();
         }
     }
