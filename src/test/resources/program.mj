@@ -1,5 +1,5 @@
 program P
-const int size=10;
+const char size=true;
 int a+, b;
 int a[];
 class Table {

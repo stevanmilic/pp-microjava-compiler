@@ -34,6 +34,8 @@ Identifier = [:jletter:][:jletterdigit:]*
 
 IntegerLiteral = 0 | [1-9][0-9]*
 
+SingleCharacter = [^\r\n\'\\]
+
 %state CHARLITERAL
 
 %%
@@ -117,8 +119,9 @@ IntegerLiteral = 0 | [1-9][0-9]*
 }
 
 <CHARLITERAL> {
-	\' 							 { yybegin(YYINITIAL); return symbol(sym.CHAR_LITERAL, yytext().charAt(0)); }   /* escape sequences */
-
+	{SingleCharacter}\' { yybegin(YYINITIAL); return symbol(sym.CHAR_LITERAL, yytext().charAt(0)); }   
+	
+	/* escape sequences */
   "\\b"\'          { yybegin(YYINITIAL); return symbol(sym.CHAR_LITERAL, '\b'); }
   "\\t"\'          { yybegin(YYINITIAL); return symbol(sym.CHAR_LITERAL, '\t'); }
   "\\n"\'          { yybegin(YYINITIAL); return symbol(sym.CHAR_LITERAL, '\n'); }

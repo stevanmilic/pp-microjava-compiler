@@ -7,6 +7,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.FileReader;
 
+import rs.etf.pp1.symboltable.concepts.*;
+
 parser code  {:
 
 	public static int globalVarCount = 0;
@@ -41,6 +43,8 @@ parser code  {:
 					logger.info("Source file successfully parsed!");
 				}
 
+				SymbolTable.dump();
+
 		} catch (Exception e) {
 				e.printStackTrace();
 		}
@@ -71,22 +75,44 @@ parser code  {:
 				stringBuilder.append(" on line ").append(symbol.left);
 			}
 		}
+		logger.error(stringBuilder.toString());
+	}
+
+	public void report_debug(String message, Object info, int line) {
+		errorReported = true;
+		StringBuilder stringBuilder = new StringBuilder(message); 
+		if( info != null ){
+			stringBuilder.append(" on line ").append(Integer.toString(line))
+				.append(" till token '").append(info.toString()).append("'");
+		} else {
+			stringBuilder.append(" on line ").append(Integer.toString(line));
+		}
 		logger.debug(stringBuilder.toString());
 	}
+
 :}
 
 /* scan with {: */
-/* 	Symbol symbol = this.getScanner().next_token(); */
-/* 	if (symbol != null && symbol.value != null)  */
-/* 		logger.debug(symbol.value.toString()); */
-/* 	return symbol; */
+/* 	Symbol s = this.getScanner().next_token(); */
+/* 	if (s != null && s.value != null)  */
+/* 		logger.info(s.toString() + " " + s.value.toString()); */
+/* 	return s; */
 /* :} */
+
+init with {:
+	SymbolTable.init();
+:}
+
+action code  {:
+	Struct currentType = SymbolTable.noType;
+:}
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
 terminal String IDENTIFIER;
 terminal Integer INTEGER_LITERAL;
-terminal Char CHAR_LITERAL;
-terminal BOOL_LITERAL, NULL_LITERAL;
+terminal Character CHAR_LITERAL;
+terminal Boolean BOOL_LITERAL;
+terminal NULL_LITERAL;
 terminal SEMICOLON, COMMA, DOT, LPAREN, RPAREN, LBRACK, RBRACK, LBRACE, RBRACE;
 terminal PLUS, MINUS, MULT, DIV, MOD, PLUSPLUS, MINUSMINUS;
 terminal EQEQ, NOTEQ, GT, LT, GTEQ, LTEQ;
@@ -95,14 +121,13 @@ terminal EQ, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ;
 
 non terminal program;
 non terminal declarations;
-non terminal constdeclaration, constdeclarators, constdeclarator, literal;
-non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator, globalbrackopt;
-non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator, localbrackopt;
-non terminal classvardeclarations, classvardeclaration, classvardeclarators, classvardeclarator, classbrackopt;
+non terminal constdeclaration, constdeclarators, constdeclarator;
+non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator;
+non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator;
+non terminal classvardeclarations, classvardeclaration, classvardeclarators, classvardeclarator;
 non terminal classdeclaration, classbody, superopt, classbodymethods;
 non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, methodreturntype, staticopt;
 non terminal formalparameteropt, formalparameter, formalparameters;
-non terminal type;
 non terminal statements, statement;
 non terminal ifstatement, ifelsestatement;
 non terminal forstatement, designatorstatementopt, conditionopt;
@@ -119,10 +144,27 @@ non terminal assignoperator, reloperator;
 non terminal addoperator, addoperatorleft, addoperatorright;
 non terminal muloperator, muloperatorleft, muloperatorright;
 
+non terminal Obj programName;
+non terminal Struct type;
+non terminal Object literal;
+
 precedence left ELSE;
 
+
+
 /* Program */
-program ::= PROGRAM IDENTIFIER declarations LBRACE methoddeclarations RBRACE
+program ::= PROGRAM programName:programname declarations LBRACE methoddeclarations RBRACE
+	{:
+		SymbolTable.chainLocalSymbols(programname);
+		SymbolTable.closeScope();
+	:}
+	;
+
+programName ::= IDENTIFIER:name
+	{:
+		RESULT = SymbolTable.insert(Obj.Prog, name, SymbolTable.noType);
+		SymbolTable.openScope();
+	:}
 	;
 
 declarations ::= declarations constdeclaration
@@ -132,42 +174,63 @@ declarations ::= declarations constdeclaration
 	;
 
 /* ConstDecl */
-constdeclaration ::= CONST type constdeclarators SEMICOLON
+constdeclaration ::= CONST type:consttype {: currentType = consttype; :} constdeclarators SEMICOLON
 	;
 constdeclarators ::= constdeclarators COMMA constdeclarator
 	| constdeclarator
 	;
-constdeclarator ::= IDENTIFIER EQ literal {: parser.constCount++; :}
+constdeclarator ::= IDENTIFIER:constname EQ literal:constvalue 
+	{: 
+		parser.constCount++; 
+		if(constvalue instanceof Integer && currentType.getKind() == Struct.Int) {
+			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+			constObj.setAdr((int)constvalue);
+		} else if(constvalue instanceof Character && currentType.getKind() == Struct.Char) {
+			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+			constObj.setAdr(Character.getNumericValue((char)constvalue));
+		} else if(constvalue instanceof Boolean && currentType.getKind() == Struct.Bool) {
+			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+			constObj.setAdr(((boolean)constvalue) ? 1 : 0);
+		} else {
+			parser.report_error("Terminal type doesn't match literal type on line " + constnameleft, null);
+		}
+	:}
 	;
-literal ::= INTEGER_LITERAL 
-	| CHAR_LITERAL 
-	| BOOL_LITERAL 
-	| NULL_LITERAL
+literal ::= INTEGER_LITERAL:integer
+	{:
+		RESULT = integer;
+	:}
+	| CHAR_LITERAL:character
+	{:
+		RESULT = character;
+	:}
+	| BOOL_LITERAL:bool
+	{:
+		RESULT = bool;
+	:}
 	;
 
 /* VarDecl */
 
 // global vars 
-globalvardeclaration ::= type globalvardeclarators SEMICOLON
-	| type error SEMICOLON:l
+globalvardeclaration ::= type:globalvartype {: currentType = globalvartype; :} globalvardeclarators SEMICOLON
+	| error SEMICOLON:semicolon
 	{:
-		parser.report_error("Error recovery done till ';' on line " + lleft, null); 
+		parser.report_debug("Error recovery done", semicolon, semicolonleft); 
 	:}
 	;
 globalvardeclarators ::= globalvardeclarators COMMA globalvardeclarator
-	| error COMMA:l globalvardeclarator 
+	| error COMMA:comma globalvardeclarator 
 	{: 
-		parser.report_error("Error recovery done till ',' on line " + lleft, null); 
+		parser.report_debug("Error recovery done", comma, commaleft); 
 	:}
 	| globalvardeclarator
 	;
-globalvardeclarator ::= IDENTIFIER globalbrackopt
-	;
-globalbrackopt ::= LBRACK RBRACK
+globalvardeclarator ::= IDENTIFIER
 	{:
 		parser.globalArrayVarCount++;
 	:}
-	| /* epsilon */
+	| IDENTIFIER LBRACK RBRACK
 	{:
 		parser.globalVarCount++;
 	:}
@@ -178,22 +241,20 @@ localvardeclarations ::= localvardeclarations localvardeclaration
 	| /* epsilon */
 	;
 localvardeclaration ::= type localvardeclarators SEMICOLON
-	| type error SEMICOLON:l
+	| type error SEMICOLON:semicolon
 	{:
-		parser.report_error("Error recovery done till ';' on line " + lleft, null); 
+		parser.report_debug("Error recovery done", semicolon, semicolonleft); 
 	:}
-	| type error:l 
+	| type error:e 
 	{: 
-		parser.report_error("Error recovery done till '{' on line " + lleft, null); 
+		parser.report_debug("Error recovery done", null, eleft); 
 	:}
 	;
 localvardeclarators ::= localvardeclarators COMMA localvardeclarator
 	| localvardeclarator
 	;
-localvardeclarator ::= IDENTIFIER localbrackopt
-	;
-localbrackopt ::= LBRACK RBRACK
-	| /* epsilon */ 
+localvardeclarator ::= IDENTIFIER
+	| IDENTIFIER LBRACK RBRACK
 	{:
 		if(parser.mainScope) {
 			parser.mainVarCount++;
@@ -210,10 +271,8 @@ classvardeclaration ::= type classvardeclarators SEMICOLON
 classvardeclarators ::= classvardeclarators COMMA classvardeclarator
 	| classvardeclarator
 	;
-classvardeclarator ::= IDENTIFIER classbrackopt
-	;
-classbrackopt ::= LBRACK RBRACK
-	| /* epsilon */
+classvardeclarator ::= IDENTIFIER
+	| IDENTIFIER LBRACK RBRACK
 	;
 
 /* ClassDecl */
@@ -234,7 +293,7 @@ methoddeclarations ::= methoddeclarations methoddeclaration
 	;
 methoddeclaration ::= methodheader methodbody
 	;
-methodheader ::= staticopt methodreturntype IDENTIFIER:i {: if(i.equals("main")) { parser.mainScope = true; } :} LPAREN formalparameteropt RPAREN 
+methodheader ::= staticopt methodreturntype IDENTIFIER:methodname {: if(methodname.equals("main")) { parser.mainScope = true; } :} LPAREN formalparameteropt RPAREN 
 	;
 staticopt ::= STATIC
 	|  /* epsilon  */
@@ -259,7 +318,19 @@ formalparameter ::= type IDENTIFIER
 	;
 
 /* Type */
-type ::= IDENTIFIER
+type ::= IDENTIFIER:typename
+	{:
+		Obj typeNode = SymbolTable.find(typename);
+		if (typeNode == SymbolTable.noObj) {
+			parser.report_error("Type not found in symbol table '" + typename + "'", null);
+			RESULT = SymbolTable.noType;
+		} else if(Obj.Type == typeNode.getKind()) {
+			RESULT = typeNode.getType();
+		} else {
+			parser.report_error("Error on line " + typenameleft + " '" + typename + "' doesn't represent a type", null);
+			RESULT = SymbolTable.noType;
+		}
+	:}
 	;
 
 /* Statement */
@@ -313,7 +384,10 @@ integerliteralopt ::= COMMA INTEGER_LITERAL
 designatorstatement ::= designator designatorstatementexpr
 	;
 designatorstatementexpr ::= assignoperator expression 
-	| assignoperator error:l {: parser.report_error("Error recovery done till ';' on line " + lleft, null); :}
+	| assignoperator error:e 
+	{: 
+		parser.report_debug("Error recovery done", null, eleft); 
+	:}
 	| LPAREN actparametersopt RPAREN 
 	| PLUSPLUS 
 	| MINUSMINUS 
