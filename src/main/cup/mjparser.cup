@@ -8,6 +8,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 
 import rs.etf.pp1.symboltable.concepts.*;
+import symboltablext.SymbolTable;
 
 parser code  {:
 
@@ -19,7 +20,8 @@ parser code  {:
 	public static boolean mainScope = false;
 
 	private static boolean errorReported = false;
-	private static final Logger logger = LogManager.getLogger(Parser.class);
+
+	public static final Logger logger = LogManager.getLogger(Parser.class);
 
 	public static void main(String argv[]) {
 		try(BufferedReader reader = new BufferedReader(new FileReader(argv[0]))){
@@ -29,9 +31,11 @@ parser code  {:
 				Lexer lexer = new Lexer(reader);
 				Parser parser = new Parser(lexer);
 
+				logger.info("============= Semantic analysis =============");
+
 				Symbol symbol = parser.parse();
 
-				logger.info("============= Syntax analysis =============");
+				logger.info("============= Syntax analysis ===============");
 				logger.info("Global variables:" + parser.globalVarCount);
 				logger.info("Local variables in main:" + parser.mainVarCount);
 				logger.info("Global constants:" + parser.constCount);
@@ -79,7 +83,6 @@ parser code  {:
 	}
 
 	public void report_debug(String message, Object info, int line) {
-		errorReported = true;
 		StringBuilder stringBuilder = new StringBuilder(message); 
 		if( info != null ){
 			stringBuilder.append(" on line ").append(Integer.toString(line))
@@ -90,6 +93,16 @@ parser code  {:
 		logger.debug(stringBuilder.toString());
 	}
 
+	public void report_info(String message, Object info, int line) {
+		StringBuilder stringBuilder = new StringBuilder(message); 
+		if( info != null ){
+			stringBuilder.append(" on line ").append(Integer.toString(line))
+				.append(" with token '").append(info.toString()).append("'");
+		} else {
+			stringBuilder.append(" on line ").append(Integer.toString(line));
+		}
+		logger.info(stringBuilder.toString());
+	}
 :}
 
 /* scan with {: */
@@ -105,6 +118,8 @@ init with {:
 
 action code  {:
 	Struct currentType = SymbolTable.noType;
+	Obj currentClass = null;
+	Obj currentMethod = null;
 :}
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
@@ -124,8 +139,8 @@ non terminal declarations;
 non terminal constdeclaration, constdeclarators, constdeclarator;
 non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator;
 non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator;
-non terminal classvardeclarations, classvardeclaration, classvardeclarators, classvardeclarator;
-non terminal classdeclaration, classbody, superopt, classbodymethods;
+non terminal classfielddeclarations, classfielddeclaration, classfielddeclarators, classfielddeclarator;
+non terminal classdeclaration, classheader, classbody, superopt, classbodymethods;
 non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, methodreturntype, staticopt;
 non terminal formalparameteropt, formalparameter, formalparameters;
 non terminal statements, statement;
@@ -149,8 +164,6 @@ non terminal Struct type;
 non terminal Object literal;
 
 precedence left ELSE;
-
-
 
 /* Program */
 program ::= PROGRAM programName:programname declarations LBRACE methoddeclarations RBRACE
@@ -181,18 +194,27 @@ constdeclarators ::= constdeclarators COMMA constdeclarator
 	;
 constdeclarator ::= IDENTIFIER:constname EQ literal:constvalue 
 	{: 
-		parser.constCount++; 
-		if(constvalue instanceof Integer && currentType.getKind() == Struct.Int) {
-			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
-			constObj.setAdr((int)constvalue);
-		} else if(constvalue instanceof Character && currentType.getKind() == Struct.Char) {
-			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
-			constObj.setAdr(Character.getNumericValue((char)constvalue));
-		} else if(constvalue instanceof Boolean && currentType.getKind() == Struct.Bool) {
-			Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
-			constObj.setAdr(((boolean)constvalue) ? 1 : 0);
+		if(SymbolTable.find(constname) == SymbolTable.noObj){
+			if(constvalue instanceof Integer && currentType.getKind() == Struct.Int) {
+				Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+				constObj.setAdr((int)constvalue);
+				parser.constCount++; 
+				parser.report_info("Const variable declared", constname, constnameleft);
+			} else if(constvalue instanceof Character && currentType.getKind() == Struct.Char) {
+				Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+				constObj.setAdr(Character.getNumericValue((char)constvalue));
+				parser.constCount++; 
+				parser.report_info("Const variable declared", constname, constnameleft);
+			} else if(constvalue instanceof Boolean && currentType.getKind() == Struct.Bool) {
+				Obj constObj = SymbolTable.insert(Obj.Con, constname, currentType);
+				constObj.setAdr(((boolean)constvalue) ? 1 : 0);
+				parser.constCount++; 
+				parser.report_info("Const variable declared", constname, constnameleft);
+			} else {
+				parser.report_error("Terminal type doesn't match literal type on line " + constnameleft, null);
+			}
 		} else {
-			parser.report_error("Terminal type doesn't match literal type on line " + constnameleft, null);
+			parser.report_error("Const variable with name '" + constname + "' is alraedy declared on line " + constnameleft, null);
 		}
 	:}
 	;
@@ -226,13 +248,25 @@ globalvardeclarators ::= globalvardeclarators COMMA globalvardeclarator
 	:}
 	| globalvardeclarator
 	;
-globalvardeclarator ::= IDENTIFIER
+globalvardeclarator ::= IDENTIFIER:globalvarname
 	{:
-		parser.globalArrayVarCount++;
+		if(SymbolTable.find(globalvarname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, globalvarname, currentType);
+			parser.globalVarCount++;
+			parser.report_info("Global variable declared", globalvarname, globalvarnameleft);
+		} else {
+			parser.report_error("Global variable with name '" + globalvarname+ "' is alraedy declared on line " + globalvarnameleft, null);
+		}
 	:}
-	| IDENTIFIER LBRACK RBRACK
+	| IDENTIFIER:globalarrayname LBRACK RBRACK
 	{:
-		parser.globalVarCount++;
+		if(SymbolTable.find(globalarrayname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, globalarrayname, SymbolTable.newArrayType(currentType));
+			parser.globalArrayVarCount++;
+			parser.report_info("Global array declared", globalarrayname, globalarraynameleft);
+		} else {
+			parser.report_error("Global array with name '" + globalarrayname+ "' is alraedy declared on line " + globalarraynameleft, null);
+		}
 	:}
 	;
 
@@ -240,7 +274,7 @@ globalvardeclarator ::= IDENTIFIER
 localvardeclarations ::= localvardeclarations localvardeclaration
 	| /* epsilon */
 	;
-localvardeclaration ::= type localvardeclarators SEMICOLON
+localvardeclaration ::= type:localvartype {: currentType = localvartype; :} localvardeclarators SEMICOLON
 	| type error SEMICOLON:semicolon
 	{:
 		parser.report_debug("Error recovery done", semicolon, semicolonleft); 
@@ -253,35 +287,93 @@ localvardeclaration ::= type localvardeclarators SEMICOLON
 localvardeclarators ::= localvardeclarators COMMA localvardeclarator
 	| localvardeclarator
 	;
-localvardeclarator ::= IDENTIFIER
-	| IDENTIFIER LBRACK RBRACK
+localvardeclarator ::= IDENTIFIER:localvarname
 	{:
-		if(parser.mainScope) {
-			parser.mainVarCount++;
+		if(SymbolTable.find(localvarname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, localvarname, currentType);
+			if(parser.mainScope) {
+				parser.mainVarCount++;
+			}
+			parser.report_info("Local variable declared", localvarname, localvarnameleft);
+		} else {
+			parser.report_error("Local variable with name '" + localvarname+ "' is alraedy declared on line " + localvarnameleft, null);
+		}
+	:}
+	| IDENTIFIER:localarrayname LBRACK RBRACK
+	{:
+		if(SymbolTable.find(localarrayname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, localarrayname, SymbolTable.newArrayType(currentType));
+			parser.globalArrayVarCount++;
+			parser.report_info("Local array declared", localarrayname, localarraynameleft);
+		} else {
+			parser.report_error("Local array with name '" + localarrayname+ "' is alraedy declared on line " + localarraynameleft, null);
 		}
 	:}
 	;
 
 //class fields
-classvardeclarations ::= classvardeclarations classvardeclaration
+classfielddeclarations ::= classfielddeclarations classfielddeclaration
 	| /* epsilon */
 	;
-classvardeclaration ::= type classvardeclarators SEMICOLON
+classfielddeclaration ::= type:classfieldtype {: currentType = classfieldtype; :} classfielddeclarators SEMICOLON
 	;
-classvardeclarators ::= classvardeclarators COMMA classvardeclarator
-	| classvardeclarator
+classfielddeclarators ::= classfielddeclarators COMMA classfielddeclarator
+	| classfielddeclarator
 	;
-classvardeclarator ::= IDENTIFIER
-	| IDENTIFIER LBRACK RBRACK
+classfielddeclarator ::= IDENTIFIER:classfieldname
+	{:
+		if(SymbolTable.find(classfieldname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, classfieldname, currentType);
+			if(parser.mainScope) {
+				parser.mainVarCount++;
+			}
+			parser.report_info("Class field declared", classfieldname, classfieldnameleft);
+		} else {
+			parser.report_error("Class field with name '" + classfieldname+ "' is alraedy declared on line " + classfieldnameleft, null);
+		}
+	:}
+	| IDENTIFIER:classarrayname LBRACK RBRACK
+	{:
+		if(SymbolTable.find(classarrayname) == SymbolTable.noObj){
+			SymbolTable.insert(Obj.Var, classarrayname, SymbolTable.newArrayType(currentType));
+			parser.globalArrayVarCount++;
+			parser.report_info("Class array declared", classarrayname, classarraynameleft);
+		} else {
+			parser.report_error("Class array with name '" + classarrayname+ "' is alraedy declared on line " + classarraynameleft, null);
+		}
+	:}
 	;
 
 /* ClassDecl */
-classdeclaration ::= CLASS IDENTIFIER superopt classbody
+classdeclaration ::= classheader classbody
 	;
-superopt ::= EXTENDS type
+classheader ::= CLASS IDENTIFIER:classname superopt 
+	{:
+		if(SymbolTable.find(classname) == SymbolTable.noObj){
+			currentClass = SymbolTable.insert(Obj.Type, classname, SymbolTable.newClassType());
+			SymbolTable.openScope();
+			parser.report_info("Class declared", classname, classnameleft);
+		} else {
+			parser.report_error("Class name '" + classname+ "' is alraedy used on line " + classnameleft, null);
+		}
+	:}
+	;
+superopt ::= EXTENDS type:supertype
+	{:
+		if(supertype.getKind() == Struct.Class) {
+			parser.report_info("Class extended", null, supertypeleft);
+		} else {
+			parser.report_error("Type doesn't represent a class", null);
+		}
+	:}
 	| /* epsilon */
 	;
-classbody ::= LBRACE classvardeclarations classbodymethods RBRACE
+classbody ::= LBRACE classfielddeclarations classbodymethods RBRACE
+	{:
+		SymbolTable.chainLocalSymbols(currentClass.getType());
+		SymbolTable.closeScope();
+		currentClass = null;
+	:}
 	;
 classbodymethods ::= LBRACE methoddeclarations RBRACE
 	| /* epsilon */
@@ -293,7 +385,12 @@ methoddeclarations ::= methoddeclarations methoddeclaration
 	;
 methoddeclaration ::= methodheader methodbody
 	;
-methodheader ::= staticopt methodreturntype IDENTIFIER:methodname {: if(methodname.equals("main")) { parser.mainScope = true; } :} LPAREN formalparameteropt RPAREN 
+methodheader ::= staticopt methodreturntype IDENTIFIER:methodname LPAREN formalparameteropt RPAREN 
+	{: 
+		if(methodname.equals("main")) {
+			parser.mainScope = true; 
+		} 
+	:} 
 	;
 staticopt ::= STATIC
 	|  /* epsilon  */
@@ -301,7 +398,10 @@ staticopt ::= STATIC
 methodreturntype ::= VOID 
 	| type
 	;
-methodbody ::= localvardeclarations LBRACE statements RBRACE {: parser.mainScope = false; :} 
+methodbody ::= localvardeclarations LBRACE statements RBRACE 
+	{: 
+		parser.mainScope = false; 
+	:} 
 	;
 
 /* FormPars */

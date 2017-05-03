@@ -1,13 +1,12 @@
 program P
-const char size=true;
-int a+, b;
-int a[];
+const bool size=true;
+int a[], b;
 class Table {
 	int pos[], neg[];
 
 	{
 		void putp ( int a, int idx){
-			this.pos[idx] = a+;
+			this.pos[idx] = a;
 		}
 
 		void putn(int a, int idx) {
@@ -23,7 +22,8 @@ class Table {
 		}
 	}
 }
-int b[];
+class SymbolTable extends Table{
+}
 Table val;
 {
 	void main()

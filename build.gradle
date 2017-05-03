@@ -1,7 +1,6 @@
 plugins {
     id 'java'
-		id 'application'
-    //id 'org.xbib.gradle.plugin.jflex' version '1.1.0'
+    id 'application'
 }
 
 repositories {
@@ -9,19 +8,25 @@ repositories {
 }
 
 dependencies {
-    compile files('libs/java-cup-11a.jar')
-    compile files('libs/symboltable.jar')
+    compile files('lib/java-cup-11a.jar')
+    compile files('lib/symboltable.jar')
     compile group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.8.2'
     compile group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.8.2'
     testCompile 'junit:junit:4.12'
 }
 
-task cup{
+mainClassName = "parser.Parser"
+
+run {
+    args = ["src/test/resources/program.mj"]
+}
+
+task cup {
     doLast {
-        javaexec{
-            main="-jar"
+        javaexec {
+            main = "-jar"
             args = [
-                    "libs/java-cup-11a.jar",
+                    "lib/java-cup-11a.jar",
                     "-destdir",
                     "src/main/java/parser",
                     "-package",
@@ -34,12 +39,12 @@ task cup{
     }
 }
 
-task jflex{
+task jflex {
     doLast {
-        javaexec{
-            main="-jar"
+        javaexec {
+            main = "-jar"
             args = [
-                    "libs/jflex-1.6.1.jar",
+                    "lib/jflex-1.6.1.jar",
                     "-d",
                     "src/main/java/lexer",
                     "src/main/jflex/mjlexer.jflex"
@@ -48,7 +53,7 @@ task jflex{
     }
 }
 
-task cleanCup{
+task cleanCup {
     doLast {
         delete "${rootDir}/src/main/java/parser/Parser.java"
         delete "${rootDir}/src/main/java/parser/sym.java"
@@ -57,11 +62,11 @@ task cleanCup{
     }
 }
 
-task cleanJflex{
-   doLast{
-       delete "${rootDir}/src/main/java/lexer/Lexer.java"
-       println "${rootDir}/src/main/java/lexer/Lexer.java"
-   }
+task cleanJflex {
+    doLast {
+        delete "${rootDir}/src/main/java/lexer/Lexer.java"
+        println "${rootDir}/src/main/java/lexer/Lexer.java"
+    }
 }
 
 build.dependsOn cup, jflex
