@@ -59,7 +59,7 @@ parser code  {:
 	}
 
 	public void unrecovered_syntax_error(Symbol symbol) throws java.lang.Exception {
-			report_fatal_error("Fatal error, stopping with parsing the file", symbol);
+			report_fatal_error("Fatal error: stopping with parsing the file", symbol);
 	}
 
 	public void report_fatal_error(String message, Object info) throws java.lang.Exception {
@@ -78,6 +78,18 @@ parser code  {:
 			} else {
 				stringBuilder.append(" on line ").append(symbol.left);
 			}
+		}
+		logger.error(stringBuilder.toString());
+	}
+
+	public void report_semantic_error(String message, int line) {
+		errorReported = true;
+		StringBuilder stringBuilder = new StringBuilder("Semantic error:"); 
+		if(message != null){
+			stringBuilder.append(" on line ").append(Integer.toString(line))
+				.append(", reason: ").append(message);
+		} else {
+			stringBuilder.append(" on line ").append(Integer.toString(line));
 		}
 		logger.error(stringBuilder.toString());
 	}
@@ -120,6 +132,8 @@ action code  {:
 	Struct currentType = SymbolTable.noType;
 	Obj currentClass = null;
 	Obj currentMethod = null;
+	boolean isVoid = false;
+	boolean returnStatementExists = false;
 :}
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
@@ -141,7 +155,7 @@ non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator;
 non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator;
 non terminal classfielddeclarations, classfielddeclaration, classfielddeclarators, classfielddeclarator;
 non terminal classdeclaration, classheader, classbody, superopt, classbodymethods;
-non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, methodreturntype, staticopt;
+non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, staticopt;
 non terminal formalparameteropt, formalparameter, formalparameters;
 non terminal statements, statement;
 non terminal ifstatement, ifelsestatement;
@@ -150,18 +164,18 @@ non terminal returnstatement, expressionopt;
 non terminal readstatement, printstatement, integerliteralopt;
 non terminal designatorstatement, designatorstatementexpr, actparametersopt;
 non terminal actparameters;
-non terminal condition, conditionfact, conditionterm, conditionfactopt;
-non terminal expression, minusopt;
-non terminal term;
-non terminal factor, factoractparamsopt, newexpressionopt;
-non terminal designator, identorexprlist, identorexpr;
+non terminal condition, conditionfact, conditionterm;
+non terminal minusopt;
+non terminal newexpressionopt;
 non terminal assignoperator, reloperator;
 non terminal addoperator, addoperatorleft, addoperatorright;
 non terminal muloperator, muloperatorleft, muloperatorright;
 
-non terminal Obj programName;
-non terminal Struct type;
+non terminal Obj programName, designator;
+non terminal Struct type, term, expression, factor;
 non terminal Object literal;
+
+non terminal Struct methodreturntype;
 
 precedence left ELSE;
 
@@ -211,10 +225,10 @@ constdeclarator ::= IDENTIFIER:constname EQ literal:constvalue
 				parser.constCount++; 
 				parser.report_info("Const variable declared", constname, constnameleft);
 			} else {
-				parser.report_error("Terminal type doesn't match literal type on line " + constnameleft, null);
+				parser.report_semantic_error("Terminal type doesn't match literal type for const '" + constname + "'" , constnameleft);
 			}
 		} else {
-			parser.report_error("Const variable with name '" + constname + "' is alraedy declared on line " + constnameleft, null);
+			parser.report_error("Const variable with name '" + constname + "' is alraedy declared", constnameleft);
 		}
 	:}
 	;
@@ -255,7 +269,7 @@ globalvardeclarator ::= IDENTIFIER:globalvarname
 			parser.globalVarCount++;
 			parser.report_info("Global variable declared", globalvarname, globalvarnameleft);
 		} else {
-			parser.report_error("Global variable with name '" + globalvarname+ "' is alraedy declared on line " + globalvarnameleft, null);
+			parser.report_semantic_error("Global variable with name '" + globalvarname+ "' is alraedy declared", globalvarnameleft);
 		}
 	:}
 	| IDENTIFIER:globalarrayname LBRACK RBRACK
@@ -265,7 +279,7 @@ globalvardeclarator ::= IDENTIFIER:globalvarname
 			parser.globalArrayVarCount++;
 			parser.report_info("Global array declared", globalarrayname, globalarraynameleft);
 		} else {
-			parser.report_error("Global array with name '" + globalarrayname+ "' is alraedy declared on line " + globalarraynameleft, null);
+			parser.report_semantic_error("Global array with name '" + globalarrayname+ "' is alraedy declared", globalarraynameleft);
 		}
 	:}
 	;
@@ -296,7 +310,7 @@ localvardeclarator ::= IDENTIFIER:localvarname
 			}
 			parser.report_info("Local variable declared", localvarname, localvarnameleft);
 		} else {
-			parser.report_error("Local variable with name '" + localvarname+ "' is alraedy declared on line " + localvarnameleft, null);
+			parser.report_semantic_error("Local variable with name '" + localvarname+ "' is alraedy declared", localvarnameleft);
 		}
 	:}
 	| IDENTIFIER:localarrayname LBRACK RBRACK
@@ -306,7 +320,7 @@ localvardeclarator ::= IDENTIFIER:localvarname
 			parser.globalArrayVarCount++;
 			parser.report_info("Local array declared", localarrayname, localarraynameleft);
 		} else {
-			parser.report_error("Local array with name '" + localarrayname+ "' is alraedy declared on line " + localarraynameleft, null);
+			parser.report_semantic_error("Local array with name '" + localarrayname+ "' is alraedy declared", localarraynameleft);
 		}
 	:}
 	;
@@ -323,23 +337,23 @@ classfielddeclarators ::= classfielddeclarators COMMA classfielddeclarator
 classfielddeclarator ::= IDENTIFIER:classfieldname
 	{:
 		if(SymbolTable.find(classfieldname) == SymbolTable.noObj){
-			SymbolTable.insert(Obj.Var, classfieldname, currentType);
+			SymbolTable.insert(Obj.Fld, classfieldname, currentType);
 			if(parser.mainScope) {
 				parser.mainVarCount++;
 			}
 			parser.report_info("Class field declared", classfieldname, classfieldnameleft);
 		} else {
-			parser.report_error("Class field with name '" + classfieldname+ "' is alraedy declared on line " + classfieldnameleft, null);
+			parser.report_semantic_error("Class field with name '" + classfieldname+ "' is alraedy declared", classfieldnameleft);
 		}
 	:}
 	| IDENTIFIER:classarrayname LBRACK RBRACK
 	{:
 		if(SymbolTable.find(classarrayname) == SymbolTable.noObj){
-			SymbolTable.insert(Obj.Var, classarrayname, SymbolTable.newArrayType(currentType));
+			SymbolTable.insert(Obj.Fld, classarrayname, SymbolTable.newArrayType(currentType));
 			parser.globalArrayVarCount++;
 			parser.report_info("Class array declared", classarrayname, classarraynameleft);
 		} else {
-			parser.report_error("Class array with name '" + classarrayname+ "' is alraedy declared on line " + classarraynameleft, null);
+			parser.report_semantic_error("Class array with name '" + classarrayname+ "' is alraedy declared", classarraynameleft);
 		}
 	:}
 	;
@@ -347,6 +361,7 @@ classfielddeclarator ::= IDENTIFIER:classfieldname
 /* ClassDecl */
 classdeclaration ::= classheader classbody
 	;
+
 classheader ::= CLASS IDENTIFIER:classname superopt 
 	{:
 		if(SymbolTable.find(classname) == SymbolTable.noObj){
@@ -354,7 +369,7 @@ classheader ::= CLASS IDENTIFIER:classname superopt
 			SymbolTable.openScope();
 			parser.report_info("Class declared", classname, classnameleft);
 		} else {
-			parser.report_error("Class name '" + classname+ "' is alraedy used on line " + classnameleft, null);
+			parser.report_semantic_error("Class name '" + classname+ "' is alraedy used", classnameleft);
 		}
 	:}
 	;
@@ -363,11 +378,12 @@ superopt ::= EXTENDS type:supertype
 		if(supertype.getKind() == Struct.Class) {
 			parser.report_info("Class extended", null, supertypeleft);
 		} else {
-			parser.report_error("Type doesn't represent a class", null);
+			parser.report_semantic_error("Type doesn't represent a class", supertypeleft);
 		}
 	:}
 	| /* epsilon */
 	;
+
 classbody ::= LBRACE classfielddeclarations classbodymethods RBRACE
 	{:
 		SymbolTable.chainLocalSymbols(currentClass.getType());
@@ -385,22 +401,36 @@ methoddeclarations ::= methoddeclarations methoddeclaration
 	;
 methoddeclaration ::= methodheader methodbody
 	;
-methodheader ::= staticopt methodreturntype IDENTIFIER:methodname LPAREN formalparameteropt RPAREN 
-	{: 
+
+methodheader ::= staticopt methodreturntype:methodreturntype IDENTIFIER:methodname 
+	{:
+		currentMethod = SymbolTable.insert(Obj.Meth, methodname, methodreturntype);
+		SymbolTable.openScope();
 		if(methodname.equals("main")) {
 			parser.mainScope = true; 
 		} 
-	:} 
+	:}
+	LPAREN formalparameteropt RPAREN 
 	;
 staticopt ::= STATIC
 	|  /* epsilon  */
 	;
 methodreturntype ::= VOID 
-	| type
+	{:
+		isVoid = true;
+		RESULT = SymbolTable.noType;
+	:}
+	| type:returntype
+	{:
+		isVoid = false;
+		RESULT = returntype;	
+	:}
 	;
+
 methodbody ::= localvardeclarations LBRACE statements RBRACE 
 	{: 
 		parser.mainScope = false; 
+		SymbolTable.closeScope();
 	:} 
 	;
 
@@ -422,12 +452,12 @@ type ::= IDENTIFIER:typename
 	{:
 		Obj typeNode = SymbolTable.find(typename);
 		if (typeNode == SymbolTable.noObj) {
-			parser.report_error("Type not found in symbol table '" + typename + "'", null);
+			parser.report_semantic_error("Type not found in symbol table '" + typename + "'", typenameleft);
 			RESULT = SymbolTable.noType;
 		} else if(Obj.Type == typeNode.getKind()) {
 			RESULT = typeNode.getType();
 		} else {
-			parser.report_error("Error on line " + typenameleft + " '" + typename + "' doesn't represent a type", null);
+			parser.report_semantic_error("'" + typename + "' doesn't represent a type", typenameleft);
 			RESULT = SymbolTable.noType;
 		}
 	:}
@@ -467,8 +497,20 @@ conditionopt ::= condition
 
 returnstatement ::= RETURN expressionopt SEMICOLON
 	;
-expressionopt ::= expression
+expressionopt ::= expression:expression
+	{:
+		returnStatementExists = true;	
+		if(isVoid) {
+			parser.report_semantic_error("Method can't have a return statement with expression, declared void", expressionleft);
+		}
+	:}
 	| /*epsilon */
+	{:
+		returnStatementExists = true;
+		if(!isVoid) {
+			parser.report_semantic_error("Method must have a return statement with expression", 0);
+		}
+	:}
 	;
 
 readstatement ::= READ LPAREN designator RPAREN SEMICOLON
@@ -512,48 +554,132 @@ conditionterm ::= conditionterm ANDAND conditionfact
 	;
 
 /* CondFact */
-conditionfact ::= expression conditionfactopt
-	;
-conditionfactopt ::= reloperator expression
-	| /* epsilon */
+conditionfact ::= expression
+	| expression:expressionl reloperator expression:expressionr
+	{:
+		if(!expressionl.compatibleWith(expressionr)){
+			parser.report_semantic_error("Expressions are not compatible", expressionrleft);
+		}
+	:}
 	;
 
 /* Expr */
-expression ::= expression addoperator term 
-	| minusopt term
-	;
-minusopt ::= MINUS
-	| /* epsilon*/
+expression ::= expression:expression addoperator term:term
+	{:
+		if(expression.getKind() != Struct.Int || !expression.compatibleWith(term)){
+			parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleft);
+		}
+		// TO DO: and stuff for addoperator...
+		RESULT = expression;
+	:}
+	| term:term
+	{:
+		RESULT = term;
+	:}
+	| MINUS term:term
+	{:
+		if(term.getKind() != Struct.Int) {
+			parser.report_semantic_error("Terminal isn't an int type", termleft);
+		}
+		RESULT = term;
+	:}
 	;
 
 /* Term */
-term ::= term muloperator factor 
-	| factor 
+term ::= term:term muloperator factor:factor
+	{:
+		if(term.getKind() != Struct.Int || term.getKind() != factor.getKind()){
+			parser.report_semantic_error("Terminal and factor differ in type or not int type", termleft);
+		}
+		//TO DO: muloperator has some stuff...
+		RESULT = term;	
+	:}
+	| factor:factor
+	{:
+		RESULT = factor;
+	:}
 	;
 
 /* Factor */
-factor ::= designator factoractparamsopt
+factor ::= designator:designator
+	{:
+		RESULT = designator.getType();
+	:}
+	| designator:method LPAREN actparametersopt RPAREN
+	{:
+		if(Obj.Meth == method.getKind()) {
+			parser.report_info("Method call", method.getName(), methodleft);
+			RESULT = method.getType();
+		} else {
+			parser.report_error("'" + method.getName() + "' isn't a method", methodleft);
+			RESULT = SymbolTable.noType;
+		}
+	:}
 	| INTEGER_LITERAL
+	{:
+		RESULT = SymbolTable.intType;
+	:}
 	| CHAR_LITERAL
+	{:
+		RESULT = SymbolTable.charType;
+	:}
 	| BOOL_LITERAL
-	| NEW type newexpressionopt
-	| LPAREN expression RPAREN
-	;
-factoractparamsopt ::= LPAREN actparametersopt RPAREN
-	| /* epsilon */
-	;
-newexpressionopt ::= LBRACK expression RBRACK
-	| /* epsilon */
+	{:
+		RESULT = SymbolTable.boolType;
+	:}
+	| NEW type:type 
+	{:
+		if(type.getKind() != Struct.Class) {
+			parser.report_semantic_error("Type must be a inner defined class", typeleft);
+		}
+		RESULT = type;
+	:}
+	| NEW type:type LBRACK expression:expression RBRACK
+	{:
+		if(expression.getKind() != Struct.Int) {
+			parser.report_semantic_error("Expression isn't an int type", expressionleft);
+		}
+		RESULT = type;
+	:}
+	| LPAREN expression:expression RPAREN
+	{:
+		RESULT = expression;
+	:}
 	;
 
 /* Designator */
-designator ::= IDENTIFIER identorexprlist
-	;
-identorexprlist ::= identorexprlist identorexpr
-	| /* epsilon */
-	;
-identorexpr ::= DOT IDENTIFIER 
-	| LBRACK expression RBRACK
+designator ::= IDENTIFIER:name
+	{:
+		Obj object = SymbolTable.find(name);
+		if(object == SymbolTable.noObj) {
+			parser.report_semantic_error("'" + name + "' not declared", nameleft);
+		} else if(object.getKind() == Obj.Var || object.getKind() == Obj.Con) {
+			parser.report_info("'" + name + "' found", SymbolTable.visitNode(object), nameleft);
+		}
+		RESULT = object;
+	:}
+	| designator:designator DOT IDENTIFIER:classmember
+	{:
+		if(designator.getType().getKind() == Struct.Class) {
+			parser.report_info("Field acces", designator.getName(), designatorleft);
+			//TO DO: ident must be a field or a method of given class
+		} else {
+			parser.report_semantic_error("'" + designator.getName() + "' doesn't represent a class", designatorleft);
+		}
+		RESULT = SymbolTable.noObj;
+	:}
+	| designator:designator LBRACK expression:expression RBRACK
+	{:
+		if(designator.getType().getKind() == Struct.Array) {
+			parser.report_info("Array access", designator.getName(), designatorleft);
+			if(expression.getKind() != Struct.Int) {
+				parser.report_semantic_error("Expression isn't an int type", expressionleft);
+			}
+		} else {
+			parser.report_semantic_error("'" + designator.getName() + "' doesn't represent an array", designatorleft);
+		}
+		RESULT = designator;
+	:}
 	;
 
 /* Assignop */

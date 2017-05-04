@@ -1,25 +1,25 @@
 program P
-const bool size=true;
-int a[], b;
+const int size=10;
+int a[], b, c;
 class Table {
 	int pos[], neg[];
 
 	{
-		void putp ( int a, int idx){
-			this.pos[idx] = a;
-		}
+		//void putp ( int a, int idx){
+		//	this.pos[idx] = a;
+		//}
 
-		void putn(int a, int idx) {
-			this.neg[idx] = a;
-		}
+		//void putn(int a, int idx) {
+		//	this.neg[idx] = a;
+		//}
 
-		int getp(int idx) {
-			return pos[idx];
-		}
+		//int getp(int idx) {
+		//	return pos[idx];
+		//}
 
-		int getn(int idx) {
-			return neg[idx];
-		}
+		//int getn(int idx) {
+		//	return neg[idx];
+		//}
 	}
 }
 class SymbolTable extends Table{
@@ -33,24 +33,25 @@ Table val;
 		val=new Table;
 		val.pos=new int[size];
 		val.neg=new int[size];
-		for(i=0;i<size; i++)
-		{
-			val.putp(0,i);
-			val.putn(0,i);
-		}
-		//‐‐‐‐‐‐‐‐‐‐ Read values
-		read(x);
-		for(;x>0;)
-		{
-			if(0<=x&&x<size)
-			{
-				val.putp(val.getp(x)+1);
-			}else
-				if(-size<x &&x< 0)
-				{
-					val.putn(val.getn(-x)+1);
-				}
-			read(x);
-		}
+		c = x + '1';
+		//for(i=0;i<size; i++)
+		//{
+		//	val.putp(0,i);
+		//	val.putn(0,i);
+		//}
+		////‐‐‐‐‐‐‐‐‐‐ Read values
+		//read(x);
+		//for(;x>0;)
+		//{
+		//	if(0<=x&&x<size)
+		//	{
+		//		val.putp(val.getp(x)+1);
+		//	}else
+		//		if(-size<x &&x< 0)
+		//		{
+		//			val.putn(val.getn(-x)+1);
+		//		}
+		//	read(x);
+		//}
 	}
 }

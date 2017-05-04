@@ -20,14 +20,6 @@ public class SymbolTable extends Tab {
         currentScope.addToLocals(new Obj(Obj.Type, "bool", boolType));
     }
 
-    public static Struct newArrayType(Struct type) {
-        return new Struct(Struct.Array, type);
-    }
-
-    public static Struct newClassType() {
-        return new Struct(Struct.Class);
-    }
-
     public static void dump(SymbolTableVisitor symbolTableVisitor) {
         Parser.logger.info("============= SYMBOL TABLE DUMP =============");
         if (symbolTableVisitor == null)
@@ -41,4 +33,19 @@ public class SymbolTable extends Tab {
     public static void dump() {
         dump(null);
     }
+
+    public static Struct newArrayType(Struct type) {
+        return new Struct(Struct.Array, type);
+    }
+
+    public static Struct newClassType() {
+        return new Struct(Struct.Class);
+    }
+
+    public static String visitNode(Obj node){
+       SymbolTableVisitor symbolTableVisitor= new DumpSymbolTableVisitorExtended();
+       node.accept(symbolTableVisitor);
+       return symbolTableVisitor.getOutput();
+    }
+
 }
