@@ -34,18 +34,14 @@ public class SymbolTable extends Tab {
         dump(null);
     }
 
-    public static Struct newArrayType(Struct type) {
-        return new Struct(Struct.Array, type);
+    public static Obj findInScope(String symbolName) {
+        Obj resultObj = SymbolTable.currentScope.findSymbol(symbolName);
+        return (resultObj != null) ? resultObj : noObj;
     }
-
-    public static Struct newClassType() {
-        return new Struct(Struct.Class);
+    public static boolean isMain(Obj obj) {
+        if(obj.getKind() == Obj.Meth && obj.getName().equals("main")) {
+            return true;
+        }
+        return false;
     }
-
-    public static String visitNode(Obj node){
-       SymbolTableVisitor symbolTableVisitor= new DumpSymbolTableVisitorExtended();
-       node.accept(symbolTableVisitor);
-       return symbolTableVisitor.getOutput();
-    }
-
 }

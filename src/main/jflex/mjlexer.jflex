@@ -63,8 +63,6 @@ SingleCharacter = [^\r\n\'\\]
 	"true"           { return symbol(sym.BOOL_LITERAL, true); }
 	"false"          { return symbol(sym.BOOL_LITERAL, false); }
 
-	"null"           { return symbol(sym.NULL_LITERAL, yytext()); }
-
 	\'               { yybegin(CHARLITERAL); }
 
 	/* separators */

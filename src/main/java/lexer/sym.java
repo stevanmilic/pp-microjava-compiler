@@ -26,47 +26,46 @@ public class sym {
 	public static final int INTEGER_LITERAL = 17;
 	public static final int CHAR_LITERAL = 18;
 	public static final int BOOL_LITERAL = 19;
-	public static final int NULL_LITERAL = 20;
 
 	//Separators
-    public static final int SEMICOLON = 21;
-    public static final int COMMA = 22;
-    public static final int DOT = 23;
-    public static final int LPAREN = 24;
-    public static final int RPAREN = 25;
-    public static final int LBRACK = 26;
-    public static final int RBRACK = 27;
-    public static final int LBRACE = 28;
-    public static final int RBRACE = 29;
+    public static final int SEMICOLON = 20;
+    public static final int COMMA = 21;
+    public static final int DOT = 22;
+    public static final int LPAREN = 23;
+    public static final int RPAREN = 24;
+    public static final int LBRACK = 25;
+    public static final int RBRACK = 26;
+    public static final int LBRACE = 27;
+    public static final int RBRACE = 28;
 
 	// Arithmetic Operators
-	public static final int PLUS = 30;
-    public static final int MINUS = 31;
-    public static final int MULT = 32;
-    public static final int DIV = 33;
-    public static final int MOD = 34;
-    public static final int PLUSPLUS = 35;
-    public static final int MINUSMINUS = 36;
+	public static final int PLUS = 29;
+    public static final int MINUS = 30;
+    public static final int MULT = 31;
+    public static final int DIV = 32;
+    public static final int MOD = 33;
+    public static final int PLUSPLUS = 34;
+    public static final int MINUSMINUS = 35;
 
     // Relational Operators
-    public static final int EQEQ = 37;
-    public static final int NOTEQ = 38;
-    public static final int GT = 39;
-    public static final int LT = 40;
-    public static final int GTEQ = 41;
-	public static final int LTEQ = 42;
+    public static final int EQEQ = 36;
+    public static final int NOTEQ = 37;
+    public static final int GT = 38;
+    public static final int LT = 39;
+    public static final int GTEQ = 40;
+	public static final int LTEQ = 41;
 
 	// Logical Operators
-	public static final int ANDAND = 43;
-	public static final int OROR = 44;
+	public static final int ANDAND = 42;
+	public static final int OROR = 43;
 
 	// Assignment Operators
-	public static final int EQ = 45;
-	public static final int PLUSEQ = 46;
-    public static final int MINUSEQ = 47;
-    public static final int MULTEQ = 48;
-    public static final int DIVEQ = 59;
-    public static final int MODEQ = 50;
+	public static final int EQ = 44;
+	public static final int PLUSEQ = 45;
+    public static final int MINUSEQ = 46;
+    public static final int MULTEQ = 47;
+    public static final int DIVEQ = 48;
+    public static final int MODEQ = 49;
 
-	public static final int EOF = 51;
+	public static final int EOF = 50;
 }
