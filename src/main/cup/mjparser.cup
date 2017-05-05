@@ -12,6 +12,7 @@ import symboltablext.SymbolTable;
 
 import rs.etf.pp1.symboltable.visitors.SymbolTableVisitor;
 import symboltablext.visitors.DumpSymbolTableVisitorExtended;
+import rs.etf.pp1.mj.runtime.Code;
 
 parser code  {:
 
@@ -61,6 +62,10 @@ parser code  {:
 
 	public static Struct newClassType() {
 			return new Struct(Struct.Class);
+	}
+
+	public static Obj newObj(int kind, String name, Struct type) {
+		return new Obj(kind, name, type);
 	}
 
 	public static String visitNode(Obj node){
@@ -157,9 +162,8 @@ init with {:
 
 action code  {:
 	Struct currentType = SymbolTable.noType;
-	Obj currentExpressionDesignator = null;
-	Obj currentTermDesignator = null;
-	Obj currentFactorDesignator = null;
+	Obj currentExpression= null;
+	Obj currentTerm= null;
 	Obj currentClass = null;
 	Obj currentMethod = null;
 	boolean returnStatementExists = false;
@@ -198,8 +202,8 @@ non terminal assignoperator, reloperator;
 non terminal addoperator, addoperatorleft, addoperatorright;
 non terminal muloperator, muloperatorleft, muloperatorright;
 
-non terminal Obj programname, designator;
-non terminal Struct type, term, expression, factor;
+non terminal Obj programname, designator, term, expression, factor;
+non terminal Struct type;
 non terminal Object literal;
 
 non terminal Struct methodreturntype;
@@ -542,7 +546,7 @@ expressionopt ::= expression:expression
 		returnStatementExists = true;	
 		if(parser.isVoid(currentMethod)) {
 			parser.report_semantic_error("Method can't have a return statement with expression, declared void", expressionleft);
-		} else if(!expression.equals(currentMethod.getType())){
+		} else if(!expression.getType().equals(currentMethod.getType())){
 			parser.report_semantic_error("Return expression doesn't match method return type", expressionleft);
 		}
 	:}
@@ -568,7 +572,7 @@ readstatement ::= READ LPAREN designator:designator RPAREN SEMICOLON
 
 printstatement ::= PRINT LPAREN expression:expression integerliteralopt RPAREN SEMICOLON
 	{:
-		if(expression.getKind() != Struct.Int) {
+		if(expression.getType().getKind() != Struct.Int) {
 			parser.report_semantic_error("Expression isn't an int type", expressionleft);
 		}
 	:}
@@ -584,7 +588,7 @@ designatorstatement ::= designator:designator assignoperator expression:expressi
 			parser.report_semantic_error("'" + designator.getName() + "' must be a variable, class field or array element", designatorleft);
 		}
 		Struct designatorType = designator.getType().getKind() == Struct.Array ? designator.getType().getElemType() : designator.getType();
-		if(!expression.assignableTo(designatorType)) {
+		if(!expression.getType().assignableTo(designatorType)) {
 			parser.report_semantic_error("Expression type must be assignable with '" + designator.getName() + "'", expressionleft);
 		}
 	:}
@@ -629,46 +633,43 @@ conditionterm ::= conditionterm ANDAND conditionfact
 conditionfact ::= expression
 	| expression:expressionl reloperator expression:expressionr
 	{:
-		if(!expressionl.compatibleWith(expressionr)){
+		if(!expressionl.getType().compatibleWith(expressionr.getType())){
 			parser.report_semantic_error("Expressions are not compatible", expressionrleft);
 		}
 	:}
 	;
 
 /* Expr */
-expression ::= expression:expression addoperator term:term
+expression ::= expression:expression {: currentExpression = expression; :} addoperator term:term
 	{:
-		if(expression.getKind() != Struct.Int || !expression.compatibleWith(term)){
+		if(expression.getType().getKind() != Struct.Int || !expression.getType().compatibleWith(term.getType())){
 			parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleft);
 		}
 		RESULT = expression;
 	:}
 	| term:term
 	{:
-		currentExpressionDesignator = currentTermDesignator;
 		RESULT = term;
 	:}
 	| MINUS term:term
 	{:
-		if(term.getKind() != Struct.Int) {
+		if(term.getType().getKind() != Struct.Int) {
 			parser.report_semantic_error("Terminal isn't an int type", termleft);
 		}
-		currentExpressionDesignator = currentTermDesignator;
 		RESULT = term;
 	:}
 	;
 
 /* Term */
-term ::= term:term muloperator factor:factor
+term ::= term:term {: currentTerm = term; :}  muloperator factor:factor
 	{:
-		if(term.getKind() != Struct.Int || !term.equals(factor)){
+		if(term.getType().getKind() != Struct.Int || !term.getType().equals(factor.getType())){
 			parser.report_semantic_error("Terminal and factor differ in type or not int type", termleft);
 		}
 		RESULT = term;	
 	:}
 	| factor:factor
 	{:
-		currentTermDesignator = currentFactorDesignator;
 		RESULT = factor;
 	:}
 	;
@@ -676,54 +677,61 @@ term ::= term:term muloperator factor:factor
 /* Factor */
 factor ::= designator:designator
 	{:
-		currentFactorDesignator = designator;
-		RESULT = designator.getType();
+		RESULT = designator;
 	:}
 	| designator:method LPAREN actparametersopt RPAREN
 	{:
 		if(Obj.Meth == method.getKind()) {
 			parser.report_info("Method call", method.getName(), methodleft);
-			RESULT = method.getType();
+			RESULT = method;
 		} else {
 			parser.report_error("'" + method.getName() + "' must be a method", methodleft);
-			RESULT = SymbolTable.noType;
+			RESULT = SymbolTable.noObj;
 		}
-		currentFactorDesignator = null;
 	:}
-	| INTEGER_LITERAL
+	| INTEGER_LITERAL:integer
 	{:
-		currentFactorDesignator = null;
-		RESULT = SymbolTable.intType;
+		Obj integerObj = parser.newObj(Obj.Con, Integer.toString(integer), SymbolTable.intType);
+		integerObj.setAdr(integer.intValue());
+		//Code.load(integerObj);
+		RESULT = integerObj;
 	:}
-	| CHAR_LITERAL
+	| CHAR_LITERAL:character
 	{:
-		currentFactorDesignator = null;
-		RESULT = SymbolTable.charType;
+		Obj charObj = parser.newObj(Obj.Con, Character.toString(character), SymbolTable.charType);
+		charObj.setAdr(Character.getNumericValue((char)character));
+		RESULT = charObj;
 	:}
-	| BOOL_LITERAL
+	| BOOL_LITERAL:bool
 	{:
-		currentFactorDesignator = null;
-		RESULT = SymbolTable.boolType;
+		Obj boolObj = parser.newObj(Obj.Con, Boolean.toString(bool), SymbolTable.boolType);
+		boolObj.setAdr(((boolean)bool) ? 1 : 0);
+		RESULT = boolObj;
 	:}
 	| NEW type:type 
 	{:
-		if(type.getKind() != Struct.Class) {
+		//TO DO: delete noObj when done
+		Obj classObj = SymbolTable.noObj;
+		if(type.getKind() == Struct.Class) {
+			// TO DO: new class object
+		} else {
 			parser.report_semantic_error("Type ins't an inner defined class", typeleft);
+			classObj = SymbolTable.noObj;
 		}
-		currentFactorDesignator = null;
-		RESULT = type;
+		RESULT = classObj;
 	:}
 	| NEW type:type LBRACK expression:expression RBRACK
 	{:
-		if(expression.getKind() != Struct.Int) {
+		Obj arrayObj = SymbolTable.noObj;
+		if(expression.getType().getKind() == Struct.Int) {
+			arrayObj = parser.newObj(Obj.Con, "", parser.newArrayType(type));
+		} else {
 			parser.report_semantic_error("Expression isn't an int type", expressionleft);
 		}
-		currentFactorDesignator = null;
-		RESULT = type;
+		RESULT = arrayObj;
 	:}
 	| LPAREN expression:expression RPAREN
 	{:
-		currentFactorDesignator = currentExpressionDesignator;
 		RESULT = expression;
 	:}
 	;
@@ -751,8 +759,12 @@ designator ::= IDENTIFIER:name
 	:}
 	| designator:designator LBRACK expression:expression RBRACK
 	{:
+		Obj elemObj = SymbolTable.noObj;
 		if(designator.getType().getKind() == Struct.Array) {
-			if(expression.getKind() == Struct.Int) {
+			if(expression.getType().getKind() == Struct.Int) {
+				/* Code.load(designator); */
+				/* RESULT = new  */
+				elemObj = parser.newObj(Obj.Elem, designator.getName() + "[" + expression + "]", designator.getType().getElemType());
 				parser.report_info("Array access", designator.getName(), designatorleft);
 			} else {
 				parser.report_semantic_error("Expression isn't an int type", expressionleft);
@@ -783,10 +795,8 @@ reloperator ::= EQEQ
 addoperator ::= addoperatorleft
  | addoperatorright:addoperatorright
  {:
-		if(currentExpressionDesignator == null){
-			parser.report_semantic_error("Left side must be assigned to variable, class field or array element", addoperatorrightleft);
-		} else if(currentExpressionDesignator.getKind() != Obj.Var && currentExpressionDesignator.getKind() != Obj.Fld) {
-			parser.report_semantic_error("'" + currentExpressionDesignator.getName() + "' must be a variable, class field or array element", addoperatorrightleft);
+		if(currentExpression.getKind() != Obj.Var && currentExpression.getKind() != Obj.Fld) {
+			parser.report_semantic_error("'" + currentExpression.getName() + "' must be a variable, class field or array element", addoperatorrightleft);
 		}
  :}
  ;
@@ -805,10 +815,8 @@ addoperatorright ::= MINUSEQ
 muloperator ::= muloperatorleft
 	| muloperatorright:muloperatorright
 	{:
-		if(currentTermDesignator == null){
-			parser.report_semantic_error("Left side must be assigned to variable, class field or array element", muloperatorrightleft);
-		} else if(currentTermDesignator.getKind() != Obj.Var && currentTermDesignator.getKind() != Obj.Fld) {
-			parser.report_semantic_error("'" + currentTermDesignator.getName() + "' must be a variable, class field or array element", muloperatorrightleft);
+		if(currentTerm.getKind() != Obj.Var && currentTerm.getKind() != Obj.Fld) {
+			parser.report_semantic_error("'" + currentTerm.getName() + "' must be a variable, class field or array element", muloperatorrightleft);
 		}
 	:}
 	;

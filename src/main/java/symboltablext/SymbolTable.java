@@ -33,15 +33,4 @@ public class SymbolTable extends Tab {
     public static void dump() {
         dump(null);
     }
-
-    public static Obj findInScope(String symbolName) {
-        Obj resultObj = SymbolTable.currentScope.findSymbol(symbolName);
-        return (resultObj != null) ? resultObj : noObj;
-    }
-    public static boolean isMain(Obj obj) {
-        if(obj.getKind() == Obj.Meth && obj.getName().equals("main")) {
-            return true;
-        }
-        return false;
-    }
 }
