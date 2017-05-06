@@ -54,6 +54,19 @@ task jflex {
     }
 }
 
+task runMicroJava {
+	doLast {
+			javaexec {
+					main = "-jar"
+					args = [
+									"lib/mj-runtime-1.1.jar",
+									"output/program.obj",
+									"-debug"
+					]
+			}
+	}
+}
+
 task cleanCup {
     doLast {
         delete "${rootDir}/src/main/java/parser/Parser.java"

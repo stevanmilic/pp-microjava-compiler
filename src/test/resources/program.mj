@@ -3,20 +3,28 @@ const int size=10;
 int a[], b, c;
 {
 	void main()
-	int x,i,b;
-	bool bl;
+	//int x, i;
+	// bool bl;
 	{
-		// a = null;
-		x = b;
-		b = 2;
-		i = 0;
-		i++;
-		read(b);
-		print(i);
-		bl = true;
-		c += 3;
-		a[0] = 2;
-		x = (2 - 3) + 2 * 4;
-		a += 2 *= 2;
+		b = 0;
+		b += 2;
+		print(b);
+		// a = new int[10];
+		// a[0] = 1;
+		// print(a[0]);
+		//b = 2;
+		//x = b;
+		// a[0] = 1;
+		// i = size;
+		// i++;
+		// read(b);
+		// print(i);
+		// bl = true;
+		//c = 3;
+		// a[0] = 2;
+		//print(c);
+		//x = x + 2;
+		//print(x);
+		// a += b *= 2;
 	}
 }
