@@ -786,6 +786,9 @@ expressionleft ::= expressionleft:expressionleft
 	| MINUS term:term
 	{:
 		if(term.getType().getKind() == Struct.Int) {
+			if(term.getKind() == Obj.Elem) {
+				Code.load(term);
+			}
 			Code.put(Code.neg);
 		} else {
 			parser.report_semantic_error("Terminal isn't an int type", termleft);
