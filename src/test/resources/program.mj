@@ -3,28 +3,59 @@ const int size=10;
 int a[], b, c;
 {
 	void main()
-	//int x, i;
+	// int i, x;
+	// char z;
 	// bool bl;
 	{
-		b = 0;
-		b += 2;
-		print(b);
-		// a = new int[10];
-		// a[0] = 1;
-		// print(a[0]);
-		//b = 2;
-		//x = b;
-		// a[0] = 1;
-		// i = size;
+		b = 10;
+		// c = 6;
+		// i = 0;
+    //
 		// i++;
-		// read(b);
+		// i += 1;
+		// i = b *= c /= 3;
+		// print('i',2);
 		// print(i);
+    //
+		// b *= c *= i += 10/2;
+		// print(b);
+    //
+		a = new int[10];
+		a[0] = 12;
+		// print('a',2);
+		// print(a[0]);
+    //
+		// b = 2;
+		// x = b;
+    //
+		// print('b',2);
+		// print(b);
+    //
+		// i = size;
+		// i--;
+		// print('i',2);
+		// print(i);
+
+		// read(b);
+		// print('i',2);
+		// print(b,4);
+
 		// bl = true;
-		//c = 3;
-		// a[0] = 2;
-		//print(c);
-		//x = x + 2;
-		//print(x);
-		// a += b *= 2;
+		c = 3;
+
+		b = a[0] += c + 3;
+
+		// b = a[0] += 3;
+		print('a',2);
+		print(b);
+
+		// x = x + 2;
+		// a += b* = x;
+		// print('x',2);
+		// print(x);
+    //
+		// z = 'w';
+		// print(z,2);
+
 	}
 }

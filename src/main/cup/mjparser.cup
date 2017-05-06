@@ -14,6 +14,7 @@ import symboltablext.SymbolTable;
 
 import rs.etf.pp1.symboltable.visitors.SymbolTableVisitor;
 import symboltablext.visitors.DumpSymbolTableVisitorExtended;
+
 import rs.etf.pp1.mj.runtime.Code;
 
 parser code  {:
@@ -30,6 +31,7 @@ parser code  {:
 	public static int INIT_BYTE_ARRAY = 0;
 	public static int INIT_WORD_ARRAY = 1;
 	public static int ERROR_INSTR_CODE = 0;
+	public static int EQ_OPERATOR = 0;
 
 	public static void main(String argv[]) {
 		try(BufferedReader reader = new BufferedReader(new FileReader(argv[0]))){
@@ -207,17 +209,21 @@ non terminal ifstatement, ifelsestatement;
 non terminal forstatement, designatorstatementopt, conditionopt;
 non terminal returnstatement, expressionopt;
 non terminal readstatement, printstatement;
-non terminal designatorstatement, designatoroperatoropt, actparametersopt;
+non terminal designatorstatement, actparametersopt;
 non terminal actparameters;
 non terminal condition, conditionfact, conditionterm;
 non terminal reloperator;
 
-non terminal Obj programname, designator, term, expression, factor;
+non terminal Obj programname, designator;
+non terminal Obj expression, expressionleft;
+non terminal Obj term, termleft;
+non terminal Obj factor;
 non terminal Struct type;
 non terminal Object literal;
 non terminal Integer assignoperator;
-non terminal Integer addoperator, addoperatorleft, addoperatorright;
-non terminal Integer muloperator, muloperatorleft, muloperatorright;
+non terminal Integer addoperatorleft, addoperatorright;
+non terminal Integer muloperatorleft, muloperatorright;
+non terminal Integer designatoroperator;
 non terminal Struct methodreturntype;
 non terminal Integer integerliteralopt;
 
@@ -261,7 +267,7 @@ constdeclarator ::= IDENTIFIER:constname EQ literal:constvalue
 			if(constvalue instanceof Integer) {
 				constObj.setAdr((int)constvalue);
 			} else if(constvalue instanceof Character) {
-				constObj.setAdr(Character.getNumericValue((char)constvalue));
+				constObj.setAdr(((Character)constvalue).charValue());
 			} else if(constvalue instanceof Boolean) {
 				constObj.setAdr(((boolean)constvalue) ? 1 : 0);
 			} 
@@ -629,7 +635,10 @@ integerliteralopt ::= COMMA INTEGER_LITERAL:integer
 designatorstatement ::= designator:designator assignoperator:assignoperator
 	{:
 		if(designator.getKind() == Obj.Var || designator.getKind() == Obj.Fld || designator.getKind() == Obj.Elem) {
-			if(assignoperator != 0){
+			if(assignoperator != parser.EQ_OPERATOR){
+				if(designator.getKind() == Obj.Elem) {
+					Code.put(Code.dup2);
+				}
 				Code.load(designator);
 			}
 		} else {
@@ -641,7 +650,7 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 			Struct designatorType = designator.getType().getKind() == Struct.Array ? designator.getType().getElemType() : designator.getType();
 			Struct expressionType = expression.getType().getKind() == Struct.Array ? expression.getType().getElemType() : expression.getType();
 			if(expressionType.assignableTo(designatorType)) {
-				if(assignoperator != 0) {
+				if(assignoperator != parser.EQ_OPERATOR) {
 					Code.put(assignoperator);
 				}
 				Code.store(designator);
@@ -656,19 +665,33 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 	| designator LPAREN actparametersopt RPAREN 
 	{:
 	:}
-	| designator:designator designatoroperatoropt
+	| designator:designator designatoroperator:operator
 	{:
-		//TO DO: ++ and -- opearators code generate...
-		if(designator.getKind() != Obj.Var && designator.getKind() != Obj.Fld) {
+		if(designator.getKind() == Obj.Var || designator.getKind() == Obj.Fld || designator.getKind() == Obj.Elem) {
+			if(designator.getType().getKind() == Struct.Int) {
+				if(designator.getKind() == Obj.Elem) {
+					Code.put(Code.dup2);
+				}
+				Code.load(designator);
+				Code.loadConst(1);
+				Code.put(operator);
+				Code.store(designator);
+			} else {
+				parser.report_semantic_error("'" + designator.getName() + "' must be an int type", designatorleft);
+			}
+		} else {
 			parser.report_semantic_error("'" + designator.getName() + "' must be a variable, class field or array element", designatorleft);
-		}
-		if(designator.getType().getKind() != Struct.Int) {
-			parser.report_semantic_error("'" + designator.getName() + "' must be an int type", designatorleft);
 		}
 	:}
 	;
-designatoroperatoropt ::= PLUSPLUS
+designatoroperator ::= PLUSPLUS
+	{:
+		RESULT = Code.add;
+	:}
 	| MINUSMINUS
+	{:
+		RESULT = Code.sub;
+	:}
 	;
 actparametersopt ::= actparameters
 	| /* epsilon */
@@ -700,14 +723,61 @@ conditionfact ::= expression
 	;
 
 /* Expr */
-expression ::= expression:expression {: currentExpression = expression; :} addoperator:addop term:term
+expression ::= expressionleft:expressionleft
 	{:
-		if(expression.getType().getKind() == Struct.Int && expression.getType().compatibleWith(term.getType())){
-			Code.put(addop);
-		} else {
-			parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleft);
+		if(expressionleft.getKind() == Obj.Elem) {
+			Code.put(Code.dup2);
+			Code.load(expressionleft);
 		}
-		RESULT = expression;
+	:}
+  addoperatorright:addoperatorright expression:e
+	{:
+		if(expressionleft.getKind() == Obj.Var || expressionleft.getKind() == Obj.Fld || expressionleft.getKind() == Obj.Elem) {
+			if(expressionleft.getType().getKind() == Struct.Int && expressionleft.getType().compatibleWith(e.getType())){
+				if(e.getKind() == Obj.Elem) {
+					Code.load(e);
+				}
+				Code.put(addoperatorright);
+				if(expressionleft.getKind() == Obj.Elem) {
+					Code.put(Code.dup_x2);
+				} else {
+					Code.put(Code.dup); 
+				}
+				Code.store(expressionleft);
+				RESULT = expressionleft;
+			} else {
+				parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleftleft);
+				RESULT = SymbolTable.noObj;
+			}
+		} else {
+			parser.report_semantic_error("'" + expressionleft.getName() + "' must be a variable, class field or array element", expressionleftleft);
+			RESULT = SymbolTable.noObj;
+		}
+	:}
+	| expressionleft:expressionleft
+	{:
+		RESULT = expressionleft;
+	:}
+	;
+
+expressionleft ::= expressionleft:expressionleft
+	{:
+		if(expressionleft.getKind() == Obj.Elem) {
+			Code.load(expressionleft);
+		}
+	:}
+	addoperatorleft:addoperatorleft term:term
+	{:
+		if(expressionleft.getType().getKind() == Struct.Int && expressionleft.getType().compatibleWith(term.getType())){
+			if(term.getKind() == Obj.Elem) {
+				Code.load(term);
+			}
+			Code.put(addoperatorleft);
+			RESULT = parser.newObj(Obj.Con, "", SymbolTable.intType);
+		} else {
+			parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleftleft);
+			RESULT = SymbolTable.noObj;
+		}
 	:}
 	| term:term
 	{:
@@ -725,14 +795,61 @@ expression ::= expression:expression {: currentExpression = expression; :} addop
 	;
 
 /* Term */
-term ::= term:term {: currentTerm = term; :}  muloperator:mulop factor:factor
+term ::= termleft:termleft
 	{:
-		if(term.getType().getKind() == Struct.Int && term.getType().equals(factor.getType())){
-			Code.put(mulop);
-		} else {
-			parser.report_semantic_error("Terminal and factor differ in type or not int type", termleft);
+		if(termleft.getKind() == Obj.Elem) {
+			Code.put(Code.dup2);
+			Code.load(termleft);
 		}
-		RESULT = term;	
+	:}
+	muloperatorright:muloperatorright term:termright
+	{:
+		if(termleft.getKind() == Obj.Var || termleft.getKind() == Obj.Fld || termleft.getKind() == Obj.Elem) {
+			if(termleft.getType().getKind() == Struct.Int && termleft.getType().equals(termright.getType())){
+				if(termright.getKind() == Obj.Elem) {
+					Code.load(termright);
+				}
+				Code.put(muloperatorright);
+				if(termleft.getKind() == Obj.Elem) {
+					Code.put(Code.dup_x2);
+				} else {
+					Code.put(Code.dup); 
+				}
+				Code.store(termleft);
+				RESULT = termleft;
+			} else {
+				parser.report_semantic_error("Terminal and factor differ in type or not int type", termleftright);
+				RESULT = SymbolTable.noObj;
+			}
+		} else {
+			parser.report_semantic_error("'" + termleft.getName() + "' must be a variable, class field or array element", termleftleft);
+			RESULT = SymbolTable.noObj;
+		}
+	:}
+	| termleft:termleft
+	{:
+		RESULT = termleft;
+	:}
+	;
+
+termleft ::= termleft:termleft 
+	{:
+		if(termleft.getKind() == Obj.Elem) {
+			Code.load(termleft);
+		}
+	:}
+	muloperatorleft:muloperatorleft factor:factor
+	{:
+		if(termleft.getType().getKind() == Struct.Int && termleft.getType().equals(factor.getType())){
+			if(factor.getKind() == Obj.Elem){
+				Code.load(factor);
+			}
+			Code.put(muloperatorleft);
+			RESULT = parser.newObj(Obj.Con, "", SymbolTable.intType);
+		} else {
+			parser.report_semantic_error("Terminal and factor differ in type or not int type", termleftleft);
+			RESULT = SymbolTable.noObj;
+		}
 	:}
 	| factor:factor
 	{:
@@ -743,7 +860,9 @@ term ::= term:term {: currentTerm = term; :}  muloperator:mulop factor:factor
 /* Factor */
 factor ::= designator:designator
 	{:
-		Code.load(designator);
+		if(designator.getKind() != Obj.Elem) {
+			Code.load(designator);
+		}
 		RESULT = designator;
 	:}
 	| designator:method LPAREN actparametersopt RPAREN
@@ -766,7 +885,7 @@ factor ::= designator:designator
 	| CHAR_LITERAL:character
 	{:
 		Obj charObj = parser.newObj(Obj.Con, Character.toString(character), SymbolTable.charType);
-		charObj.setAdr(Character.getNumericValue((char)character));
+		charObj.setAdr(character.charValue());
 		Code.load(charObj);
 		RESULT = charObj;
 	:}
@@ -856,7 +975,7 @@ designator ::= IDENTIFIER:name
 /* Assignop */
 assignoperator ::= EQ
 	{:
-		RESULT = 0;
+		RESULT = parser.EQ_OPERATOR;
 	:}
 	| addoperatorright:addoperatorright
 	{:
@@ -878,20 +997,7 @@ reloperator ::= EQEQ
 	;
 
 /* Addop */
-addoperator ::= addoperatorleft:addoperatorleft
-	{:
-		RESULT = addoperatorleft;
-	:}
-	| addoperatorright:addoperatorright
-	{:
-		if(currentTerm.getKind() == Obj.Var || currentTerm.getKind() == Obj.Fld || currentTerm.getKind() == Obj.Elem) {
-			RESULT = addoperatorright;
-		} else {
-			RESULT = parser.ERROR_INSTR_CODE;
-			parser.report_semantic_error("'" + currentExpression.getName() + "' must be a variable, class field or array element", addoperatorrightleft);
-		}
-	:}
- ;
+//no need
 
 /* AddopLeft */
 addoperatorleft ::= PLUS
@@ -916,20 +1022,7 @@ addoperatorright ::= MINUSEQ
 	;
 
 /* Mulop */
-muloperator ::= muloperatorleft:muloperatorleft
-	{:
-		RESULT = muloperatorleft;
-	:}
-	| muloperatorright:muloperatorright
-	{:
-		if(currentTerm.getKind() == Obj.Var || currentTerm.getKind() == Obj.Fld || currentTerm.getKind() == Obj.Elem) {
-			RESULT = muloperatorright;
-		} else {
-			RESULT = parser.ERROR_INSTR_CODE;
-			parser.report_semantic_error("'" + currentTerm.getName() + "' must be a variable, class field or array element", muloperatorrightleft);
-		}
-	:}
-	;
+// no need
 
 /* MulopLeft */
 muloperatorleft ::= MULT
