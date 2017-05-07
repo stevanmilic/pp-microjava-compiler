@@ -23,6 +23,10 @@ parser code  {:
 	public static int mainVarCount = 0;
 	public static int constCount = 0;
 	public static int globalArrayVarCount = 0;
+	public static int functionCount = 0;
+	public static int blockStatementsCount = 0;
+	public static int functionCallCount = 0;
+	public static int formalParamCount = 0;
 
 	private static boolean errorReported = false;
 
@@ -50,6 +54,10 @@ parser code  {:
 				logger.info("Local variables in main:" + parser.mainVarCount);
 				logger.info("Global constants:" + parser.constCount);
 				logger.info("Global arrays:" + parser.globalArrayVarCount);
+				logger.info("Global and static functions:" + parser.functionCount);
+				logger.info("Block statements:" + parser.blockStatementsCount);
+				logger.info("Function calls:" + parser.functionCallCount);
+				logger.info("Formal parameters:" + parser.formalParamCount);
 
 				if(parser.errorReported){
 					logger.info("Source file contains error(s)!");
@@ -104,6 +112,20 @@ parser code  {:
 					return true;
 			}
 			return false;
+	}
+
+	public static boolean isAssignable(Obj obj) {
+		if(obj != null && (obj.getKind() == Obj.Var || obj.getKind() == Obj.Fld || obj.getKind() == Obj.Elem)) {
+			return true;
+		}
+		return false;
+	}
+
+	public static boolean isOperand(Obj obj) {
+		if(obj != null && (obj.getKind() == Obj.Var || obj.getKind() == Obj.Fld || obj.getKind() == Obj.Elem || obj.getKind() == Obj.Con)) {
+			return true;
+		}
+		return false;
 	}
 
 	public void syntax_error(Symbol symbol) {
@@ -203,10 +225,9 @@ non terminal localvardeclarations, localvardeclaration, localvardeclarators, loc
 non terminal classfielddeclarations, classfielddeclaration, classfielddeclarators, classfielddeclarator;
 non terminal classdeclaration, classheader, classbody, superopt, classbodymethods;
 non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, staticopt;
-non terminal formalparameteropt, formalparameter, formalparameters;
 non terminal statements, statement;
-non terminal ifstatement, ifelsestatement;
-non terminal forstatement, designatorstatementopt, conditionopt;
+non terminal ifstatement, ifelsestatement, ifcondition;
+non terminal forstatement, forexpressions, designatorstatementopt, conditionopt;
 non terminal returnstatement, expressionopt;
 non terminal readstatement, printstatement;
 non terminal designatorstatement, actparametersopt;
@@ -226,6 +247,7 @@ non terminal Integer muloperatorleft, muloperatorright;
 non terminal Integer designatoroperator;
 non terminal Struct methodreturntype;
 non terminal Integer integerliteralopt;
+non terminal Integer formalparameteropt, formalparameter, formalparameters;
 
 precedence left ELSE;
 
@@ -459,7 +481,7 @@ methodheader ::= staticopt methodreturntype:methodreturntype IDENTIFIER:methodna
 		currentMethod = SymbolTable.insert(Obj.Meth, methodname, methodreturntype);
 		SymbolTable.openScope();
 	:}
-	LPAREN formalparameteropt RPAREN 
+	formalparameteropt:nformalparamaters
 	{:
 		if(parser.isMain(currentMethod)) {
 			if(parser.isVoid(currentMethod)){
@@ -468,9 +490,11 @@ methodheader ::= staticopt methodreturntype:methodreturntype IDENTIFIER:methodna
 			} else {
 				parser.report_semantic_error("Main method must be void type", methodreturntypeleft);
 			}
-		} 
+		} else {
+			parser.functionCount++;
+		}
 		currentMethod.setAdr(Code.pc);
-		//TO DO: format parametars stuff
+		currentMethod.setLevel(nformalparamaters);
 		Code.put(Code.enter);
 		Code.put(currentMethod.getLevel());
 		Code.put(SymbolTable.currentScope().getnVars());
@@ -505,19 +529,44 @@ methodbody ::= localvardeclarations LBRACE statements RBRACE:rbrace
 	;
 
 /* FormPars */
-formalparameteropt ::= formalparameters
-	| /* epsilon */
-	;
-
-formalparameters ::= formalparameter
-	| formalparameters COMMA formalparameter
-	;
-
-formalparameter ::= type IDENTIFIER
+formalparameteropt ::= LPAREN formalparameters:nformalparamaters RPAREN 
 	{:
+		parser.formalParamCount += nformalparamaters;
+		RESULT = nformalparamaters;
 	:}
-	| type IDENTIFIER LBRACK RBRACK
+	| LPAREN error RPAREN:rparen
 	{:
+		parser.report_debug("Error recovery done", rparen, rparenleft); 
+		RESULT = 0;
+	:}
+	| LPAREN RPAREN
+	{:
+		RESULT = 0;
+	:}
+	;
+
+formalparameters ::= formalparameters:nformalparamaters COMMA formalparameter
+	{:
+		RESULT = new Integer(nformalparamaters.intValue() + 1);
+	:}
+	| error COMMA:comma formalparameter 
+	{:
+		parser.report_debug("Error recovery done", comma, commaleft); 
+		RESULT = new Integer(0);
+	:}
+	| formalparameter
+	{:
+		RESULT = new Integer(1);
+	:}
+	;
+
+formalparameter ::= type:type IDENTIFIER:name
+	{:
+		SymbolTable.insert(Obj.Var, name, type);
+	:}
+	| type:type IDENTIFIER:arrayname LBRACK RBRACK
+	{:
+		SymbolTable.insert(Obj.Var, arrayname, parser.newArrayType(type));
 	:}
 	;
 
@@ -552,15 +601,29 @@ statement ::= designatorstatement SEMICOLON
 	| readstatement
 	| printstatement
 	| LBRACE statements RBRACE
+	{:
+		parser.blockStatementsCount++;
+	:}
 	;
 
-ifstatement ::= IF LPAREN condition RPAREN statement
+ifstatement ::= IF ifcondition statement
 	;
-ifelsestatement ::= IF LPAREN condition RPAREN statement ELSE statement
+ifelsestatement ::= IF ifcondition statement ELSE statement
+	;
+ifcondition ::= LPAREN condition RPAREN
+	| LPAREN error RPAREN:rparen
+	{:
+		parser.report_debug("Error recovery done", rparen, rparenleft); 
+	:}
 	;
 
-forstatement ::= FOR LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLON 
-	designatorstatementopt RPAREN statement
+forstatement ::= FOR forexpressions statement
+	;
+forexpressions ::= LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLON designatorstatementopt RPAREN
+	| LPAREN error RPAREN:rparen
+	{:
+		parser.report_debug("Error recovery done", rparen, rparenleft); 
+	:}
 	;
 designatorstatementopt ::= designatorstatement
 	| /* epsilon */
@@ -591,7 +654,7 @@ expressionopt ::= expression:expression
 
 readstatement ::= READ LPAREN designator:designator RPAREN SEMICOLON
 	{:
-		if(designator.getKind() == Obj.Var || designator.getKind() == Obj.Fld || designator.getKind() == Obj.Elem) {
+		if(parser.isAssignable(designator)) {
 			if(designator.getType().getKind() == Struct.Int || designator.getType().getKind() == Struct.Bool) {
 				Code.put(Code.read);
 			} else if(designator.getType().getKind() == Struct.Char) {
@@ -634,7 +697,7 @@ integerliteralopt ::= COMMA INTEGER_LITERAL:integer
 /* DesignatorStatement */
 designatorstatement ::= designator:designator assignoperator:assignoperator
 	{:
-		if(designator.getKind() == Obj.Var || designator.getKind() == Obj.Fld || designator.getKind() == Obj.Elem) {
+		if(parser.isAssignable(designator)) {
 			if(assignoperator != parser.EQ_OPERATOR){
 				if(designator.getKind() == Obj.Elem) {
 					Code.put(Code.dup2);
@@ -647,27 +710,37 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 	:}
 	expression:expression
 	{:
-			Struct designatorType = designator.getType().getKind() == Struct.Array ? designator.getType().getElemType() : designator.getType();
-			Struct expressionType = expression.getType().getKind() == Struct.Array ? expression.getType().getElemType() : expression.getType();
-			if(expressionType.assignableTo(designatorType)) {
-				if(assignoperator != parser.EQ_OPERATOR) {
-					Code.put(assignoperator);
-				}
-				Code.store(designator);
-			} else {
-				parser.report_semantic_error("Expression type must be assignable with '" + designator.getName() + "'", expressionleft);
+		Struct designatorType = designator.getType().getKind() == Struct.Array ? designator.getType().getElemType() : designator.getType();
+		Struct expressionType = expression.getType().getKind() == Struct.Array ? expression.getType().getElemType() : expression.getType();
+		if(expressionType.assignableTo(designatorType)) {
+			if(assignoperator != parser.EQ_OPERATOR) {
+				Code.put(assignoperator);
 			}
+			Code.store(designator);
+		} else {
+			parser.report_semantic_error("Expression type must be assignable with '" + designator.getName() + "'", expressionleft);
+		}
 	:}
 	| designator assignoperator error:e 
 	{: 
 		parser.report_debug("Error recovery done", null, eleft); 
 	:}
-	| designator LPAREN actparametersopt RPAREN 
+	| designator:designator LPAREN actparametersopt RPAREN 
 	{:
+		if(designator.getKind() == Obj.Meth) {
+			parser.report_info("Method call", designator.getName(), designatorleft);
+			if(parser.isMain(currentMethod)) {
+				parser.functionCallCount++;
+			}
+			RESULT = designator;
+		} else {
+			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
+			RESULT = SymbolTable.noObj;
+		}
 	:}
 	| designator:designator designatoroperator:operator
 	{:
-		if(designator.getKind() == Obj.Var || designator.getKind() == Obj.Fld || designator.getKind() == Obj.Elem) {
+		if(parser.isAssignable(designator)) {
 			if(designator.getType().getKind() == Struct.Int) {
 				if(designator.getKind() == Obj.Elem) {
 					Code.put(Code.dup2);
@@ -732,7 +805,7 @@ expression ::= expressionleft:expressionleft
 	:}
   addoperatorright:addoperatorright expression:e
 	{:
-		if(expressionleft.getKind() == Obj.Var || expressionleft.getKind() == Obj.Fld || expressionleft.getKind() == Obj.Elem) {
+		if(parser.isAssignable(expressionleft)) {
 			if(expressionleft.getType().getKind() == Struct.Int && expressionleft.getType().compatibleWith(e.getType())){
 				if(e.getKind() == Obj.Elem) {
 					Code.load(e);
@@ -807,7 +880,7 @@ term ::= termleft:termleft
 	:}
 	muloperatorright:muloperatorright term:termright
 	{:
-		if(termleft.getKind() == Obj.Var || termleft.getKind() == Obj.Fld || termleft.getKind() == Obj.Elem) {
+		if(parser.isAssignable(termleft)) {
 			if(termleft.getType().getKind() == Struct.Int && termleft.getType().equals(termright.getType())){
 				if(termright.getKind() == Obj.Elem) {
 					Code.load(termright);
@@ -863,18 +936,24 @@ termleft ::= termleft:termleft
 /* Factor */
 factor ::= designator:designator
 	{:
-		if(designator.getKind() != Obj.Elem) {
+		if(!parser.isOperand(designator)){
+			parser.report_semantic_error("'" + designator.getName() + "' isn't an operand", designatorleft);
+		} else if(designator.getKind() != Obj.Elem) {
 			Code.load(designator);
 		}
 		RESULT = designator;
 	:}
-	| designator:method LPAREN actparametersopt RPAREN
+	| designator:designator LPAREN actparametersopt RPAREN
 	{:
-		if(Obj.Meth == method.getKind()) {
-			parser.report_info("Method call", method.getName(), methodleft);
-			RESULT = method;
+		if(designator.getKind() == Obj.Meth) {
+			if(parser.isMain(currentMethod)) {
+				parser.functionCallCount++;
+			}
+			//TO DO: print -> sum(x, n) found ....
+			parser.report_info("Method call", parser.visitNode(designator), designatorleft);
+			RESULT = designator;
 		} else {
-			parser.report_error("'" + method.getName() + "' must be a method", methodleft);
+			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
 			RESULT = SymbolTable.noObj;
 		}
 	:}
@@ -936,13 +1015,16 @@ factor ::= designator:designator
 /* Designator */
 designator ::= IDENTIFIER:name
 	{:
-		Obj object = SymbolTable.find(name);
-		if(object == SymbolTable.noObj) {
-			parser.report_semantic_error("'" + name + "' not declared", nameleft);
-		} else if(object.getKind() == Obj.Var || object.getKind() == Obj.Con) {
-			parser.report_info("'" + name + "' found", parser.visitNode(object), nameleft);
+		Obj obj = SymbolTable.find(name);
+		if(obj == SymbolTable.noObj) {
+			parser.report_semantic_error("'" + name + "' isn't declared", nameleft);
+		} else if(obj.getKind() == Obj.Prog || obj.getKind() == Obj.Type) {
+			parser.report_semantic_error("'" + name + "' isn't an operand", nameleft);
+			obj = SymbolTable.noObj;
+		} else if(obj.getKind() == Obj.Var || obj.getKind() == Obj.Con) {
+			parser.report_info("'" + name + "' found", parser.visitNode(obj), nameleft);
 		}
-		RESULT = object;
+		RESULT = obj;
 	:}
 	| designator:designator DOT IDENTIFIER:classmember
 	{:
@@ -954,26 +1036,29 @@ designator ::= IDENTIFIER:name
 		}
 		RESULT = SymbolTable.noObj;
 	:}
-	| designator:designator 
+	| designator:designator LBRACK expression:expression RBRACK
 	{:
+		Obj elemObj = SymbolTable.noObj;
 		if(designator.getType().getKind() == Struct.Array) {
-			Code.load(designator);
+			if(expression.getType().getKind() == Struct.Int) {
+				Code.load(designator);
+				elemObj = parser.newObj(Obj.Elem, designator.getName() + "[" + expression.getName() + "]", designator.getType().getElemType());
+				parser.report_info("'" + elemObj.getName() + "' found", parser.visitNode(designator), designatorleft);
+			} else {
+				parser.report_semantic_error("Expression isn't an int type", expressionleft);
+			}
 		} else {
 			parser.report_semantic_error("'" + designator.getName() + "' must represent an array", designatorleft);
 		}
-	:}
-	LBRACK expression:expression RBRACK
-	{:
-		Obj elemObj = SymbolTable.noObj;
-		if(expression.getType().getKind() == Struct.Int) {
-			elemObj = parser.newObj(Obj.Elem, designator.getName() + "[" + expression.getName() + "]", designator.getType().getElemType());
-			parser.report_info("Array access", designator.getName(), designatorleft);
-		} else {
-			parser.report_semantic_error("Expression isn't an int type", expressionleft);
-		}
 		RESULT = elemObj;
 	:}
+	| designator LBRACK error RBRACK:rbrack
+	{:
+		parser.report_debug("Error recovery done", rbrack, rbrackleft); 
+		RESULT = SymbolTable.noObj;
+	:}
 	;
+
 
 /* Assignop */
 assignoperator ::= EQ
