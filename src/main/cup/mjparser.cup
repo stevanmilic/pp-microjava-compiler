@@ -9,6 +9,10 @@ import java.io.FileReader;
 import java.io.File;
 import java.io.FileOutputStream;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
+
 import rs.etf.pp1.symboltable.concepts.*;
 import symboltablext.SymbolTable;
 
@@ -201,8 +205,11 @@ action code  {:
 	Obj currentTerm= null;
 	Obj currentClass = null;
 	Obj currentMethod = null;
+	Obj currentCallMethod = null;
+	Obj currentArrayDesignator = null;
 	boolean returnStatementExists = false;
 	boolean mainDefined = false;
+	boolean forScope = false;
 	int dataCount = 0;
 :}
 
@@ -231,9 +238,6 @@ non terminal forstatement, forexpressions, designatorstatementopt, conditionopt;
 non terminal returnstatement, expressionopt;
 non terminal readstatement, printstatement;
 non terminal designatorstatement, actparametersopt;
-non terminal actparameters;
-non terminal condition, conditionfact, conditionterm;
-non terminal reloperator;
 
 non terminal Obj programname, designator;
 non terminal Obj expression, expressionleft;
@@ -248,6 +252,10 @@ non terminal Integer designatoroperator;
 non terminal Struct methodreturntype;
 non terminal Integer integerliteralopt;
 non terminal Integer formalparameteropt, formalparameter, formalparameters;
+non terminal Collection<Obj> actparameters;
+non terminal Obj condition, conditionfact, conditionterm;
+non terminal Integer reloperator;
+non terminal Obj indexexpression;
 
 precedence left ELSE;
 
@@ -381,8 +389,6 @@ localvardeclarator ::= IDENTIFIER:localvarname
 			if(parser.isMain(currentMethod)) {
 				parser.mainVarCount++;
 			}
-			localVar.setAdr(Code.pc);
-			Code.load(localVar);
 			parser.report_info("Local variable declared", localvarname, localvarnameleft);
 		} else {
 			parser.report_semantic_error("Local variable with name '" + localvarname+ "' is alraedy declared", localvarnameleft);
@@ -393,8 +399,6 @@ localvardeclarator ::= IDENTIFIER:localvarname
 		if(parser.findInScope(localarrayname) == SymbolTable.noObj){
 			Obj localArray = SymbolTable.insert(Obj.Var, localarrayname, parser.newArrayType(currentType));
 			parser.globalArrayVarCount++;
-			localArray.setAdr(Code.pc);
-			Code.load(localArray);
 			parser.report_info("Local array declared", localarrayname, localarraynameleft);
 		} else {
 			parser.report_semantic_error("Local array with name '" + localarrayname+ "' is alraedy declared", localarraynameleft);
@@ -480,9 +484,6 @@ methodheader ::= staticopt methodreturntype:methodreturntype IDENTIFIER:methodna
 	{:
 		currentMethod = SymbolTable.insert(Obj.Meth, methodname, methodreturntype);
 		SymbolTable.openScope();
-	:}
-	formalparameteropt:nformalparamaters
-	{:
 		if(parser.isMain(currentMethod)) {
 			if(parser.isVoid(currentMethod)){
 				mainDefined = true;
@@ -493,6 +494,9 @@ methodheader ::= staticopt methodreturntype:methodreturntype IDENTIFIER:methodna
 		} else {
 			parser.functionCount++;
 		}
+	:}
+	formalparameteropt:nformalparamaters localvardeclarations 
+	{:
 		currentMethod.setAdr(Code.pc);
 		currentMethod.setLevel(nformalparamaters);
 		Code.put(Code.enter);
@@ -513,16 +517,18 @@ methodreturntype ::= VOID
 	:}
 	;
 
-methodbody ::= localvardeclarations LBRACE statements RBRACE:rbrace 
+methodbody ::= LBRACE statements RBRACE:rbrace 
 	{: 
-		if(!parser.isVoid(currentMethod) && !returnStatementExists) {
-			parser.report_semantic_error("Method must have a return statement, declared as non void type", rbraceleft);
-		}
-		Code.put(Code.exit);
-		Code.put(Code.return_);
-		//TO DO: trap instr for runtime error
 		SymbolTable.chainLocalSymbols(currentMethod);
 		SymbolTable.closeScope();
+		if(!parser.isVoid(currentMethod) && !returnStatementExists) {
+			//parser.report_semantic_error("Method must have a return statement declared as non void type", rbraceleft);
+			Code.put(Code.trap); 
+			Code.put(1);
+		} else {
+			Code.put(Code.exit);
+			Code.put(Code.return_);
+		}
 		returnStatementExists = false;
 		currentMethod = null;
 	:} 
@@ -595,8 +601,22 @@ statement ::= designatorstatement SEMICOLON
 	| ifstatement
 	| ifelsestatement
 	| forstatement
-	| BREAK SEMICOLON
-	| CONTINUE SEMICOLON
+	| BREAK:breaks SEMICOLON
+	{:
+		if(forScope){
+			//TO DO: generate code
+		} else {
+			parser.report_semantic_error("Break statement can only be used inside for loop", breaksleft);
+		}
+	:}
+	| CONTINUE:continues SEMICOLON
+	{:
+		if(forScope){
+			//TO DO: generate code
+		} else {
+			parser.report_semantic_error("Continue statement can only be used inside for loop", continuesleft);
+		}
+	:}
 	| returnstatement
 	| readstatement
 	| printstatement
@@ -610,14 +630,28 @@ ifstatement ::= IF ifcondition statement
 	;
 ifelsestatement ::= IF ifcondition statement ELSE statement
 	;
-ifcondition ::= LPAREN condition RPAREN
+ifcondition ::= LPAREN condition:condition RPAREN
+	{:
+		if(condition.getType().getKind() == Struct.Bool){
+			//TO DO: generate code
+		}
+		RESULT = condition;
+	:}
 	| LPAREN error RPAREN:rparen
 	{:
 		parser.report_debug("Error recovery done", rparen, rparenleft); 
+		RESULT = SymbolTable.noObj;
 	:}
 	;
 
-forstatement ::= FOR forexpressions statement
+forstatement ::= FOR forexpressions 
+	{:
+		forScope = true;
+	:}
+	statement
+	{:
+		forScope = false;
+	:}
 	;
 forexpressions ::= LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLON designatorstatementopt RPAREN
 	| LPAREN error RPAREN:rparen
@@ -628,7 +662,14 @@ forexpressions ::= LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLO
 designatorstatementopt ::= designatorstatement
 	| /* epsilon */
 	;
-conditionopt ::= condition
+conditionopt ::= condition:condition
+	{:
+		if(condition.getType().getKind() == Struct.Bool){
+			//TO DO: generate code
+		} else {
+			parser.report_semantic_error("'" + condition.getName() + "' must be bool type", conditionleft);
+		}
+	:}
 	| /* epsilon */
 	;
 
@@ -657,8 +698,10 @@ readstatement ::= READ LPAREN designator:designator RPAREN SEMICOLON
 		if(parser.isAssignable(designator)) {
 			if(designator.getType().getKind() == Struct.Int || designator.getType().getKind() == Struct.Bool) {
 				Code.put(Code.read);
+				Code.store(designator);
 			} else if(designator.getType().getKind() == Struct.Char) {
 				Code.put(Code.bread);
+				Code.store(designator);
 			} else {
 				parser.report_semantic_error("'" + designator.getName() + "' must be an int,char or bool type", designatorleft);
 			}
@@ -670,6 +713,9 @@ readstatement ::= READ LPAREN designator:designator RPAREN SEMICOLON
 
 printstatement ::= PRINT LPAREN expression:expression integerliteralopt:n RPAREN SEMICOLON
 	{:
+		if(expression.getKind() == Obj.Elem) {
+			Code.load(expression);
+		}
 		if(expression.getType().getKind() == Struct.Int){
 			Code.loadConst(n);
 			Code.put(Code.print);
@@ -725,17 +771,29 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 	{: 
 		parser.report_debug("Error recovery done", null, eleft); 
 	:}
-	| designator:designator LPAREN actparametersopt RPAREN 
+	| designator:designator 
 	{:
 		if(designator.getKind() == Obj.Meth) {
-			parser.report_info("Method call", designator.getName(), designatorleft);
+			currentCallMethod = designator;
+		} else {
+			currentCallMethod = null;
+		}
+	:}
+	LPAREN actparametersopt RPAREN 
+	{:
+		if(currentCallMethod != null) {
 			if(parser.isMain(currentMethod)) {
 				parser.functionCallCount++;
 			}
-			RESULT = designator;
+			int destAdress = designator.getAdr() - Code.pc;
+			Code.put(Code.call);
+			Code.put2(destAdress);
+			parser.report_info("'" + designator.getName() + "' found", parser.visitNode(designator), designatorleft);
+			if(designator.getType() != SymbolTable.noType) {
+				Code.put(Code.pop);
+			}
 		} else {
 			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
-			RESULT = SymbolTable.noObj;
 		}
 	:}
 	| designator:designator designatoroperator:operator
@@ -766,31 +824,94 @@ designatoroperator ::= PLUSPLUS
 		RESULT = Code.sub;
 	:}
 	;
-actparametersopt ::= actparameters
+actparametersopt ::= actparameters:actparameters
+	{:
+		if(currentCallMethod != null) {
+			if(actparameters.size() == currentCallMethod.getLevel()){
+				Iterator<Obj> formalParameters = currentCallMethod.getLocalSymbols().iterator();
+				Iterator<Obj> actParameters = actparameters.iterator();
+				while(actParameters.hasNext()){
+					Obj formalParameter = formalParameters.next();
+					Obj actParameter = actParameters.next();
+					if(!formalParameter.getType().compatibleWith(actParameter.getType())) {
+						parser.report_semantic_error("Actual parameter '" + actParameter.getName() + "' parameter isn't compatible with formal parameter '" + formalParameter.getName() + "'", actparametersleft);
+					}
+				}
+			} else {
+				parser.report_semantic_error("Actual(" + actparameters.size() + ") and formal(" + currentCallMethod.getLevel() + ") parameters differ in length", actparametersleft);
+			}
+		}
+	:}
 	| /* epsilon */
+	{:
+		if(currentCallMethod != null && currentCallMethod.getLevel() != 0) {
+			parser.report_semantic_error("Actual(0) and formal(" + currentCallMethod.getLevel() + ") parameters differ in length", 0);
+		}
+	:}
 	;
 
 /* ActPars */
-actparameters ::= actparameters COMMA expression
-	| expression
+actparameters ::= actparameters:actparameters COMMA expression:expression
+	{:
+		actparameters.add(expression);
+		RESULT = actparameters;
+	:}
+	| expression:expression
+	{:
+		Collection<Obj> actparameters = new ArrayList<>();
+		actparameters.add(expression);
+		RESULT = actparameters;
+	:}
 	;
 
 /* Condition */
 condition ::= condition OROR conditionterm
-	| conditionterm
+	{:
+		RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+	:}
+	| conditionterm:conditionterm
+	{:
+		RESULT = conditionterm;
+	:}
 	;
 
 /* CondTerm */
 conditionterm ::= conditionterm ANDAND conditionfact
-	| conditionfact
+	{:
+		RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+	:}
+	| conditionfact:conditionfact
+	{:
+		RESULT = conditionfact;
+	:}
 	;
 
 /* CondFact */
-conditionfact ::= expression
-	| expression:expressionl reloperator expression:expressionr
+conditionfact ::= expression:expression
 	{:
-		if(!expressionl.getType().compatibleWith(expressionr.getType())){
-			parser.report_semantic_error("Expressions are not compatible", expressionrleft);
+		if(expression.getType().getKind() == Struct.Bool) {
+			/* Code.loadConst(1); */
+			/* Code.putFalseJump(Code.eq, 0); */
+			RESULT = expression;
+		} else {
+			parser.report_semantic_error("'" + expression.getName() + "' must be bool type", expressionleft);
+			RESULT = SymbolTable.noObj;
+		}
+	:}
+	| expression:expressionleft reloperator:reloperator expression:expressionright
+	{:
+		if(expressionleft.getType().compatibleWith(expressionright.getType())){
+			if((expressionleft.getType().getKind() == Struct.Array || expressionright.getType().getKind() == Struct.Class) 
+				&& (reloperator != Code.eq && reloperator != Code.ne)) {
+				parser.report_semantic_error("Variables of type class or array can't use this reloperator", reloperatorleft);
+				RESULT = SymbolTable.noObj;
+			} else {
+				/* Code.putFalseJump(reloperator, 0); */
+				RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+			}
+		} else {
+			parser.report_semantic_error("Left expression '" + expressionleft.getName() + "' isn't compatible with right expression '" + expressionright.getName() + "'", expressionleftleft);
+			RESULT = SymbolTable.noObj;
 		}
 	:}
 	;
@@ -943,15 +1064,25 @@ factor ::= designator:designator
 		}
 		RESULT = designator;
 	:}
-	| designator:designator LPAREN actparametersopt RPAREN
+	| designator:designator
 	{:
 		if(designator.getKind() == Obj.Meth) {
+			currentCallMethod = designator;
+		} else {
+			currentCallMethod = null;
+		}
+	:}
+	LPAREN actparametersopt RPAREN
+	{:
+		if(currentCallMethod != null) {
 			if(parser.isMain(currentMethod)) {
 				parser.functionCallCount++;
 			}
-			//TO DO: print -> sum(x, n) found ....
-			parser.report_info("Method call", parser.visitNode(designator), designatorleft);
-			RESULT = designator;
+			int destAdress = designator.getAdr() - Code.pc;
+			Code.put(Code.call);
+			Code.put2(destAdress);
+			parser.report_info("'" + designator.getName() + "' found", parser.visitNode(designator), designatorleft);
+			RESULT = parser.newObj(Obj.Con, "", designator.getType());
 		} else {
 			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
 			RESULT = SymbolTable.noObj;
@@ -980,13 +1111,11 @@ factor ::= designator:designator
 	:}
 	| NEW type:type 
 	{:
-		//TO DO: delete noObj when done
 		Obj classObj = SymbolTable.noObj;
 		if(type.getKind() == Struct.Class) {
 			// TO DO: new class object
 		} else {
 			parser.report_semantic_error("Type ins't an inner defined class", typeleft);
-			classObj = SymbolTable.noObj;
 		}
 		RESULT = classObj;
 	:}
@@ -1036,29 +1165,41 @@ designator ::= IDENTIFIER:name
 		}
 		RESULT = SymbolTable.noObj;
 	:}
-	| designator:designator LBRACK expression:expression RBRACK
+	| designator:designator 
+	{:
+		if(designator.getType().getKind() == Struct.Array) {
+			Code.load(designator);
+			currentArrayDesignator = designator;
+		} else {
+			parser.report_semantic_error("'" + designator.getName() + "' must represent an array", designatorleft);
+			currentArrayDesignator =  null;
+		}
+	:}
+	indexexpression:arrayelem
+	{:
+		RESULT = arrayelem;
+	:}
+	;
+
+indexexpression ::= LBRACK expression:expression RBRACK
 	{:
 		Obj elemObj = SymbolTable.noObj;
-		if(designator.getType().getKind() == Struct.Array) {
+		if(currentArrayDesignator != null) {
 			if(expression.getType().getKind() == Struct.Int) {
-				Code.load(designator);
-				elemObj = parser.newObj(Obj.Elem, designator.getName() + "[" + expression.getName() + "]", designator.getType().getElemType());
-				parser.report_info("'" + elemObj.getName() + "' found", parser.visitNode(designator), designatorleft);
+				elemObj = parser.newObj(Obj.Elem, currentArrayDesignator.getName() + "[" + expression.getName() + "]", currentArrayDesignator.getType().getElemType());
+				parser.report_info("'" + elemObj.getName() + "' found", parser.visitNode(currentArrayDesignator), expressionleft);
 			} else {
 				parser.report_semantic_error("Expression isn't an int type", expressionleft);
 			}
-		} else {
-			parser.report_semantic_error("'" + designator.getName() + "' must represent an array", designatorleft);
 		}
 		RESULT = elemObj;
 	:}
-	| designator LBRACK error RBRACK:rbrack
+	| LBRACK error RBRACK:rbrack
 	{:
 		parser.report_debug("Error recovery done", rbrack, rbrackleft); 
 		RESULT = SymbolTable.noObj;
 	:}
 	;
-
 
 /* Assignop */
 assignoperator ::= EQ
@@ -1077,11 +1218,29 @@ assignoperator ::= EQ
 
 /* Relop */
 reloperator ::= EQEQ
+	{:
+		RESULT = Code.eq;
+	:}
 	| NOTEQ
+	{:
+		RESULT = Code.ne;
+	:}
 	| GT
+	{:
+		RESULT = Code.gt;
+	:}
 	| GTEQ
+	{:
+		RESULT = Code.ge;
+	:}
 	| LT
+	{:
+		RESULT = Code.lt;
+	:}
 	| LTEQ
+	{:
+		RESULT = Code.le;
+	:}
 	;
 
 /* Addop */
