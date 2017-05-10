@@ -12,6 +12,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Collections;
 
 import rs.etf.pp1.symboltable.concepts.*;
 import symboltablext.SymbolTable;
@@ -38,8 +39,20 @@ parser code  {:
 
 	public static int INIT_BYTE_ARRAY = 0;
 	public static int INIT_WORD_ARRAY = 1;
-	public static int ERROR_INSTR_CODE = 0;
 	public static int EQ_OPERATOR = 0;
+	public static int ERROR_OPERATOR = -1;
+	public static int AND_OPERATOR = 0;
+	public static int OR_OPERATOR = 1;
+
+	public static class FixUpAddress {
+		public int adr;
+		public int operator;
+		
+		public FixUpAddress(int adr ,int operator) {
+			this.adr = adr;
+			this.operator = operator;
+		}
+	}
 
 	public static void main(String argv[]) {
 		try(BufferedReader reader = new BufferedReader(new FileReader(argv[0]))){
@@ -102,6 +115,10 @@ parser code  {:
 	public static Obj findInScope(String symbolName) {
 			Obj resultObj = SymbolTable.currentScope().findSymbol(symbolName);
 			return (resultObj != null) ? resultObj : SymbolTable.noObj;
+	}
+
+	public static FixUpAddress newFixUpAddress(int adr, int operator) {
+			return new FixUpAddress(adr, operator);
 	}
 
 	public static boolean isMain(Obj obj) {
@@ -201,8 +218,6 @@ init with {:
 
 action code  {:
 	Struct currentType = SymbolTable.noType;
-	Obj currentExpression= null;
-	Obj currentTerm= null;
 	Obj currentClass = null;
 	Obj currentMethod = null;
 	Obj currentCallMethod = null;
@@ -211,6 +226,7 @@ action code  {:
 	boolean mainDefined = false;
 	boolean forScope = false;
 	int dataCount = 0;
+	Collection<Parser.FixUpAddress> fixUpAddresses = new ArrayList<>();
 :}
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
@@ -233,7 +249,7 @@ non terminal classfielddeclarations, classfielddeclaration, classfielddeclarator
 non terminal classdeclaration, classheader, classbody, superopt, classbodymethods;
 non terminal methoddeclaration, methodheader, methodbody, methoddeclarations, staticopt;
 non terminal statements, statement;
-non terminal ifstatement, ifelsestatement, ifcondition;
+non terminal ifstatement, elsestatement, ifcondition;
 non terminal forstatement, forexpressions, designatorstatementopt, conditionopt;
 non terminal returnstatement, expressionopt;
 non terminal readstatement, printstatement;
@@ -253,9 +269,9 @@ non terminal Struct methodreturntype;
 non terminal Integer integerliteralopt;
 non terminal Integer formalparameteropt, formalparameter, formalparameters;
 non terminal Collection<Obj> actparameters;
-non terminal Obj condition, conditionfact, conditionterm;
 non terminal Integer reloperator;
 non terminal Obj indexexpression;
+non terminal Integer condition, conditionterm, conditionfact;
 
 precedence left ELSE;
 
@@ -599,7 +615,7 @@ statements ::= statements statement
 
 statement ::= designatorstatement SEMICOLON
 	| ifstatement
-	| ifelsestatement
+	/* | ifelsestatement */
 	| forstatement
 	| BREAK:breaks SEMICOLON
 	{:
@@ -626,21 +642,38 @@ statement ::= designatorstatement SEMICOLON
 	:}
 	;
 
-ifstatement ::= IF ifcondition statement
-	;
-ifelsestatement ::= IF ifcondition statement ELSE statement
-	;
-ifcondition ::= LPAREN condition:condition RPAREN
+ifstatement ::= IF ifcondition
 	{:
-		if(condition.getType().getKind() == Struct.Bool){
-			//TO DO: generate code
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.operator == parser.OR_OPERATOR) {
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			}
 		}
-		RESULT = condition;
+	:}
+	statement elsestatement
+	;
+elsestatement ::= ELSE statement
+	| /*epsilon*/
+	{:
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			Code.fixup(fixUpAddress.adr);
+			fixUpAddressesIterator.remove();
+		}
+	:}
+	;
+ifcondition ::= LPAREN condition:reloperator RPAREN
+	{:
+		Code.putFalseJump(reloperator, 0);
+		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR));
 	:}
 	| LPAREN error RPAREN:rparen
 	{:
 		parser.report_debug("Error recovery done", rparen, rparenleft); 
-		RESULT = SymbolTable.noObj;
 	:}
 	;
 
@@ -664,11 +697,7 @@ designatorstatementopt ::= designatorstatement
 	;
 conditionopt ::= condition:condition
 	{:
-		if(condition.getType().getKind() == Struct.Bool){
-			//TO DO: generate code
-		} else {
-			parser.report_semantic_error("'" + condition.getName() + "' must be bool type", conditionleft);
-		}
+		//TO DO: fix up address or something..
 	:}
 	| /* epsilon */
 	;
@@ -865,24 +894,42 @@ actparameters ::= actparameters:actparameters COMMA expression:expression
 	;
 
 /* Condition */
-condition ::= condition OROR conditionterm
+condition ::= condition:reloperatorcond
 	{:
-		RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+		Code.putFalseJump(Code.inverse[reloperatorcond], 0);
+		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.OR_OPERATOR));
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.operator == parser.AND_OPERATOR) {
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			}
+		}
 	:}
-	| conditionterm:conditionterm
+	OROR conditionterm:reloperatorterm
 	{:
-		RESULT = conditionterm;
+		RESULT = reloperatorterm;
+	:}
+	| conditionterm:reloperator
+	{:
+		RESULT = reloperator;
 	:}
 	;
 
 /* CondTerm */
-conditionterm ::= conditionterm ANDAND conditionfact
+conditionterm ::= conditionterm:reloperatorterm
 	{:
-		RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+		Code.putFalseJump(reloperatorterm, 0);
+		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR));
 	:}
-	| conditionfact:conditionfact
+	ANDAND conditionfact:reloperatorfact
 	{:
-		RESULT = conditionfact;
+		RESULT = reloperatorfact;
+	:}
+	| conditionfact:reloperator
+	{:
+		RESULT = reloperator;
 	:}
 	;
 
@@ -890,12 +937,11 @@ conditionterm ::= conditionterm ANDAND conditionfact
 conditionfact ::= expression:expression
 	{:
 		if(expression.getType().getKind() == Struct.Bool) {
-			/* Code.loadConst(1); */
-			/* Code.putFalseJump(Code.eq, 0); */
-			RESULT = expression;
+			Code.loadConst(1);
+			RESULT = Code.eq;
 		} else {
 			parser.report_semantic_error("'" + expression.getName() + "' must be bool type", expressionleft);
-			RESULT = SymbolTable.noObj;
+			RESULT = parser.ERROR_OPERATOR;
 		}
 	:}
 	| expression:expressionleft reloperator:reloperator expression:expressionright
@@ -904,14 +950,13 @@ conditionfact ::= expression:expression
 			if((expressionleft.getType().getKind() == Struct.Array || expressionright.getType().getKind() == Struct.Class) 
 				&& (reloperator != Code.eq && reloperator != Code.ne)) {
 				parser.report_semantic_error("Variables of type class or array can't use this reloperator", reloperatorleft);
-				RESULT = SymbolTable.noObj;
+				RESULT = parser.ERROR_OPERATOR;
 			} else {
-				/* Code.putFalseJump(reloperator, 0); */
-				RESULT = parser.newObj(Obj.Con, "", SymbolTable.boolType);
+				RESULT = reloperator;
 			}
 		} else {
 			parser.report_semantic_error("Left expression '" + expressionleft.getName() + "' isn't compatible with right expression '" + expressionright.getName() + "'", expressionleftleft);
-			RESULT = SymbolTable.noObj;
+			RESULT = parser.ERROR_OPERATOR;
 		}
 	:}
 	;

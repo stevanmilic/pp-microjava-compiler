@@ -11,12 +11,19 @@ program Program
 		return s + n;
 	}
 	void main() 
-	int i, n; 
+	int t, n, a; 
+	bool b;
 	int x[]; 
 	{
 		n = 10;
+		b = true;
+		a = 3;
+		t = 2;
 		//read(n);
-		x = new int[n];
+		if( t == 2 || n < 10 && n >= 5 && a < 2 || b == true) {
+			x = new int[n];
+			print('t', 3);
+		}
 		// a = new int[5];
 		// for(i = 0; i < n; i++) {
 		// 	x[i] = i;
