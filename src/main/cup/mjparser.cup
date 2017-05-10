@@ -9,7 +9,7 @@ import java.io.FileReader;
 import java.io.File;
 import java.io.FileOutputStream;
 
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Collections;
@@ -41,16 +41,22 @@ parser code  {:
 	public static int INIT_WORD_ARRAY = 1;
 	public static int EQ_OPERATOR = 0;
 	public static int ERROR_OPERATOR = -1;
+
 	public static int AND_OPERATOR = 0;
 	public static int OR_OPERATOR = 1;
+	public static int ELSE_BRANCH = 2;
+	public static int DESIGNATOR_STATEMENT = 3;
+	public static int BREAK_STATEMENT = 4;
 
 	public static class FixUpAddress {
 		public int adr;
 		public int operator;
+		public int level;
 		
-		public FixUpAddress(int adr ,int operator) {
+		public FixUpAddress(int adr ,int operator, int level) {
 			this.adr = adr;
 			this.operator = operator;
+			this.level = level;
 		}
 	}
 
@@ -117,8 +123,8 @@ parser code  {:
 			return (resultObj != null) ? resultObj : SymbolTable.noObj;
 	}
 
-	public static FixUpAddress newFixUpAddress(int adr, int operator) {
-			return new FixUpAddress(adr, operator);
+	public static FixUpAddress newFixUpAddress(int adr, int operator, int level) {
+			return new FixUpAddress(adr, operator, level);
 	}
 
 	public static boolean isMain(Obj obj) {
@@ -226,7 +232,9 @@ action code  {:
 	boolean mainDefined = false;
 	boolean forScope = false;
 	int dataCount = 0;
-	Collection<Parser.FixUpAddress> fixUpAddresses = new ArrayList<>();
+	LinkedList<Parser.FixUpAddress> fixUpAddresses = new LinkedList<>();
+	int currentIFLevel = 0;
+	int conditionAddress, fixConditionAddress, designatorAddress;
 :}
 
 terminal PROGRAM, BREAK, CLASS, ELSE, CONST, IF, NEW, PRINT, READ, RETURN, VOID, FOR, EXTENDS, CONTINUE, STATIC;
@@ -615,12 +623,12 @@ statements ::= statements statement
 
 statement ::= designatorstatement SEMICOLON
 	| ifstatement
-	/* | ifelsestatement */
 	| forstatement
 	| BREAK:breaks SEMICOLON
 	{:
 		if(forScope){
-			//TO DO: generate code
+			Code.putJump(0);
+			fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc - 2, parser.BREAK_STATEMENT, currentIFLevel));
 		} else {
 			parser.report_semantic_error("Break statement can only be used inside for loop", breaksleft);
 		}
@@ -628,7 +636,7 @@ statement ::= designatorstatement SEMICOLON
 	| CONTINUE:continues SEMICOLON
 	{:
 		if(forScope){
-			//TO DO: generate code
+			Code.putJump(fixUpAddresses.stream().filter(a -> a.operator == parser.DESIGNATOR_STATEMENT).findFirst().get().adr);
 		} else {
 			parser.report_semantic_error("Continue statement can only be used inside for loop", continuesleft);
 		}
@@ -642,34 +650,75 @@ statement ::= designatorstatement SEMICOLON
 	:}
 	;
 
-ifstatement ::= IF ifcondition
+ifstatement ::= IF 
+	{:
+		currentIFLevel++;
+	:}
+	ifcondition
 	{:
 		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
 		while(fixUpAddressesIterator.hasNext()){
 			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
-			if(fixUpAddress.operator == parser.OR_OPERATOR) {
+			if(fixUpAddress.level == currentIFLevel && fixUpAddress.operator == parser.OR_OPERATOR) {
 				Code.fixup(fixUpAddress.adr);
 				fixUpAddressesIterator.remove();
 			}
 		}
 	:}
 	statement elsestatement
+	{:
+		currentIFLevel--;
+	:}
 	;
-elsestatement ::= ELSE statement
+elsestatement ::= ELSE
+	{:
+		Code.putJump(0);
+		fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc - 2, parser.ELSE_BRANCH, currentIFLevel));
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.level == currentIFLevel && fixUpAddress.operator != parser.ELSE_BRANCH) { 
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			} else if(fixUpAddress.level != currentIFLevel) {
+				break;
+			}
+		}
+	:}
+	statement
+	{:
+		/* Code.fixup(fixUpAddresses.remove().adr); */
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.level == currentIFLevel && fixUpAddress.operator == parser.ELSE_BRANCH) { 
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			} else {
+				break;
+			}
+		}
+	:}
 	| /*epsilon*/
 	{:
 		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
 		while(fixUpAddressesIterator.hasNext()){
 			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
-			Code.fixup(fixUpAddress.adr);
-			fixUpAddressesIterator.remove();
+			if(fixUpAddress.level == currentIFLevel) { 
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			} else {
+				break;
+			}
 		}
 	:}
 	;
 ifcondition ::= LPAREN condition:reloperator RPAREN
 	{:
-		Code.putFalseJump(reloperator, 0);
-		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR));
+		if(reloperator != parser.ERROR_OPERATOR) {
+			Code.putFalseJump(reloperator, 0);
+			fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR, currentIFLevel));
+		}
 	:}
 	| LPAREN error RPAREN:rparen
 	{:
@@ -680,13 +729,56 @@ ifcondition ::= LPAREN condition:reloperator RPAREN
 forstatement ::= FOR forexpressions 
 	{:
 		forScope = true;
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.level == currentIFLevel && fixUpAddress.operator == parser.OR_OPERATOR) {
+				Code.fixup(fixUpAddress.adr);
+				fixUpAddressesIterator.remove();
+			} else {
+				break;
+			}
+		}
 	:}
 	statement
 	{:
+		/* Code.putJump(designatorAddress); */
+		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+		while(fixUpAddressesIterator.hasNext()){
+			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+			if(fixUpAddress.level == currentIFLevel) { 
+				if(fixUpAddress.operator == parser.DESIGNATOR_STATEMENT) {
+					Code.putJump(fixUpAddress.adr);
+				} else {
+					Code.fixup(fixUpAddress.adr);
+				}
+				fixUpAddressesIterator.remove();
+			} else {
+				break;
+			}
+		}
+		currentIFLevel--;
 		forScope = false;
 	:}
 	;
-forexpressions ::= LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLON designatorstatementopt RPAREN
+forexpressions ::= LPAREN designatorstatementopt SEMICOLON 
+	{: 
+		conditionAddress = Code.pc; 
+		currentIFLevel++;
+	:}
+	conditionopt SEMICOLON 
+	{: 
+		Code.putJump(0);
+		fixConditionAddress = Code.pc - 2;
+		fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc, parser.DESIGNATOR_STATEMENT, currentIFLevel));
+		/* designatorAddress = Code.pc;  */
+	:}
+	designatorstatementopt
+	{:
+		Code.putJump(conditionAddress);
+		Code.fixup(fixConditionAddress);
+	:}
+	RPAREN
 	| LPAREN error RPAREN:rparen
 	{:
 		parser.report_debug("Error recovery done", rparen, rparenleft); 
@@ -695,9 +787,12 @@ forexpressions ::= LPAREN designatorstatementopt SEMICOLON conditionopt SEMICOLO
 designatorstatementopt ::= designatorstatement
 	| /* epsilon */
 	;
-conditionopt ::= condition:condition
+conditionopt ::= condition:reloperator
 	{:
-		//TO DO: fix up address or something..
+		if(reloperator != parser.ERROR_OPERATOR) {
+			Code.putFalseJump(reloperator, 0);
+			fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR, currentIFLevel));
+		}
 	:}
 	| /* epsilon */
 	;
@@ -788,6 +883,9 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 		Struct designatorType = designator.getType().getKind() == Struct.Array ? designator.getType().getElemType() : designator.getType();
 		Struct expressionType = expression.getType().getKind() == Struct.Array ? expression.getType().getElemType() : expression.getType();
 		if(expressionType.assignableTo(designatorType)) {
+			if(expression.getKind() == Obj.Elem) {
+				Code.load(expression);
+			}
 			if(assignoperator != parser.EQ_OPERATOR) {
 				Code.put(assignoperator);
 			}
@@ -887,7 +985,7 @@ actparameters ::= actparameters:actparameters COMMA expression:expression
 	:}
 	| expression:expression
 	{:
-		Collection<Obj> actparameters = new ArrayList<>();
+		Collection<Obj> actparameters = new LinkedList<>();
 		actparameters.add(expression);
 		RESULT = actparameters;
 	:}
@@ -896,14 +994,16 @@ actparameters ::= actparameters:actparameters COMMA expression:expression
 /* Condition */
 condition ::= condition:reloperatorcond
 	{:
-		Code.putFalseJump(Code.inverse[reloperatorcond], 0);
-		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.OR_OPERATOR));
-		Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
-		while(fixUpAddressesIterator.hasNext()){
-			Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
-			if(fixUpAddress.operator == parser.AND_OPERATOR) {
-				Code.fixup(fixUpAddress.adr);
-				fixUpAddressesIterator.remove();
+		if(reloperatorcond != parser.ERROR_OPERATOR) {
+			Code.putFalseJump(Code.inverse[reloperatorcond], 0);
+			fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.OR_OPERATOR, currentIFLevel));
+			Iterator<Parser.FixUpAddress> fixUpAddressesIterator = fixUpAddresses.iterator();
+			while(fixUpAddressesIterator.hasNext()){
+				Parser.FixUpAddress fixUpAddress = fixUpAddressesIterator.next();
+				if(fixUpAddress.operator == parser.AND_OPERATOR) {
+					Code.fixup(fixUpAddress.adr);
+					fixUpAddressesIterator.remove();
+				}
 			}
 		}
 	:}
@@ -920,8 +1020,10 @@ condition ::= condition:reloperatorcond
 /* CondTerm */
 conditionterm ::= conditionterm:reloperatorterm
 	{:
-		Code.putFalseJump(reloperatorterm, 0);
-		fixUpAddresses.add(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR));
+		if(reloperatorterm != parser.ERROR_OPERATOR) {
+			Code.putFalseJump(reloperatorterm, 0);
+			fixUpAddresses.addFirst(parser.newFixUpAddress(Code.pc - 2, parser.AND_OPERATOR, currentIFLevel));
+		}
 	:}
 	ANDAND conditionfact:reloperatorfact
 	{:
@@ -944,7 +1046,13 @@ conditionfact ::= expression:expression
 			RESULT = parser.ERROR_OPERATOR;
 		}
 	:}
-	| expression:expressionleft reloperator:reloperator expression:expressionright
+	| expression:expressionleft 
+	{:
+		if(expressionleft.getKind() == Obj.Elem) {
+			Code.load(expressionleft);
+		}
+	:}
+	reloperator:reloperator expression:expressionright
 	{:
 		if(expressionleft.getType().compatibleWith(expressionright.getType())){
 			if((expressionleft.getType().getKind() == Struct.Array || expressionright.getType().getKind() == Struct.Class) 
@@ -952,6 +1060,9 @@ conditionfact ::= expression:expression
 				parser.report_semantic_error("Variables of type class or array can't use this reloperator", reloperatorleft);
 				RESULT = parser.ERROR_OPERATOR;
 			} else {
+				if(expressionright.getKind() == Obj.Elem) {
+					Code.load(expressionright);
+				}
 				RESULT = reloperator;
 			}
 		} else {
