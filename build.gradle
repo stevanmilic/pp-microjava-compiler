@@ -22,6 +22,10 @@ run {
 	args = ["src/test/resources/program_B.mj"]
 }
 
+test {
+    testLogging.showStandardStreams = true
+}
+
 task cup {
 	doLast {
 		javaexec {
