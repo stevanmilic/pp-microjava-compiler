@@ -1,86 +1,99 @@
 plugins {
-    id 'java'
-    id 'application'
+	id 'java'
+	id 'application'
 }
 
 repositories {
-    jcenter()
+	jcenter()
 }
 
 dependencies {
-    compile files('lib/java-cup-11a.jar')
-    compile files('lib/symboltable.jar')
-		compile files('lib/mj-runtime-1.1.jar')
-    compile group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.8.2'
-    compile group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.8.2'
-    testCompile 'junit:junit:4.12'
+	compile files('lib/java-cup-11a.jar')
+	compile files('lib/symboltable.jar')
+	compile files('lib/mj-runtime-1.1.jar')
+	compile group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.8.2'
+	compile group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.8.2'
+	testCompile 'junit:junit:4.12'
 }
 
 mainClassName = "parser.Parser"
 
 run {
-    args = ["src/test/resources/program_B.mj"]
+	args = ["src/test/resources/program_B.mj"]
 }
 
 task cup {
-    doLast {
-        javaexec {
-            main = "-jar"
-            args = [
-                    "lib/java-cup-11a.jar",
-                    "-destdir",
-                    "src/main/java/parser",
-                    "-package",
-                    "parser",
-                    "-parser",
-                    "Parser",
-                    "src/main/cup/mjparser.cup"
-            ]
-        }
-    }
+	doLast {
+		javaexec {
+			main = "-jar"
+				args = [
+				"lib/java-cup-11a.jar",
+				"-destdir",
+				"src/main/java/parser",
+				"-package",
+				"parser",
+				"-parser",
+				"Parser",
+				"src/main/cup/mjparser.cup"
+				]
+		}
+	}
 }
 
 task jflex {
-    doLast {
-        javaexec {
-            main = "-jar"
-            args = [
-                    "lib/jflex-1.6.1.jar",
-                    "-d",
-                    "src/main/java/lexer",
-                    "src/main/jflex/mjlexer.jflex"
-            ]
-        }
-    }
+	doLast {
+		javaexec {
+			main = "-jar"
+				args = [
+				"lib/jflex-1.6.1.jar",
+				"-d",
+				"src/main/java/lexer",
+				"src/main/jflex/mjlexer.jflex"
+				]
+		}
+	}
 }
 
 task runMicroJava {
 	doLast {
-			javaexec {
-					main = "-jar"
-					args = [
-									"lib/mj-runtime-1.1.jar",
-									"output/program.obj",
-									"-debug"
-					]
-			}
+		javaexec {
+			main = "-jar"
+				args = [
+				"lib/mj-runtime-1.1.jar",
+				"output/program.obj",
+				"-debug"
+				]
+		}
+	}
+}
+
+task disasm {
+	doLast {
+		javaexec {
+			main = "-cp"
+				args = [
+					"lib/mj-runtime-1.1.jar",
+					"rs.etf.pp1.mj.runtime.disasm",
+					"output/program.obj"
+				]
+		}
 	}
 }
 
 task cleanCup {
-    doLast {
-        delete "${rootDir}/src/main/java/parser/Parser.java"
-        delete "${rootDir}/src/main/java/parser/sym.java"
-        println "${rootDir}/src/main/java/parser/Parser.java"
-        println "${rootDir}/src/main/java/parser/sym.java"
-    }
+	doLast {
+		delete "${rootDir}/src/main/java/parser/Parser.java"
+		delete "${rootDir}/src/main/java/parser/sym.java"
+		println "${rootDir}/src/main/java/parser/Parser.java"
+		println "${rootDir}/src/main/java/parser/sym.java"
+	}
 }
 
 task cleanJflex {
-    doLast {
-        delete "${rootDir}/src/main/java/lexer/Lexer.java"
-        println "${rootDir}/src/main/java/lexer/Lexer.java"
-    }
+	doLast {
+		delete "${rootDir}/src/main/java/lexer/Lexer.java"
+		println "${rootDir}/src/main/java/lexer/Lexer.java"
+	}
 }
 
 build.dependsOn cup, jflex
