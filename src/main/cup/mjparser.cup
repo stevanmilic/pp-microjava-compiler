@@ -251,7 +251,7 @@ terminal EQ, PLUSEQ, MINUSEQ, MULTEQ, DIVEQ, MODEQ;
 non terminal program;
 non terminal declarations;
 non terminal constdeclaration, constdeclarators, constdeclarator;
-non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator;
+non terminal globalvardeclaration, globalvardeclarators, globalvardeclarator, globalvardeclaratorsopt;
 non terminal localvardeclarations, localvardeclaration, localvardeclarators, localvardeclarator;
 non terminal classfielddeclarations, classfielddeclaration, classfielddeclarators, classfielddeclarator;
 non terminal classdeclaration, classheader, classbody, superopt, classbodymethods;
@@ -350,7 +350,14 @@ literal ::= INTEGER_LITERAL:integer
 /* VarDecl */
 
 // global vars 
-globalvardeclaration ::= type:globalvartype {: currentType = globalvartype; :} globalvardeclarators SEMICOLON
+globalvardeclaration ::= type:globalvartype 
+	{: 
+		currentType = globalvartype; 
+	:} 
+	globalvardeclaratorsopt
+	;
+
+globalvardeclaratorsopt ::= globalvardeclarators SEMICOLON
 	| error SEMICOLON:semicolon
 	{:
 		parser.report_debug("Error recovery done", semicolon, semicolonleft); 
@@ -384,7 +391,7 @@ globalvardeclarator ::= IDENTIFIER:globalvarname
 			Code.load(globalArray);
 			parser.report_info("Global array declared", globalarrayname, globalarraynameleft);
 		} else {
-			parser.report_semantic_error("Global array with name '" + globalarrayname+ "' is alraedy declared", globalarraynameleft);
+			parser.report_semantic_error("Global variable with name '" + globalarrayname+ "' is alraedy declared", globalarraynameleft);
 		}
 	:}
 	;
@@ -400,7 +407,7 @@ localvardeclaration ::= type:localvartype {: currentType = localvartype; :} loca
 	:}
 	| type error:e 
 	{: 
-		parser.report_debug("Error recovery done", null, eleft); 
+		parser.report_debug("Error recovery done", "{", eleft); 
 	:}
 	;
 localvardeclarators ::= localvardeclarators COMMA localvardeclarator
@@ -425,7 +432,7 @@ localvardeclarator ::= IDENTIFIER:localvarname
 			parser.globalArrayVarCount++;
 			parser.report_info("Local array declared", localarrayname, localarraynameleft);
 		} else {
-			parser.report_semantic_error("Local array with name '" + localarrayname+ "' is alraedy declared", localarraynameleft);
+			parser.report_semantic_error("Local variable with name '" + localarrayname+ "' is alraedy declared", localarraynameleft);
 		}
 	:}
 	;
@@ -455,7 +462,7 @@ classfielddeclarator ::= IDENTIFIER:classfieldname
 			parser.globalArrayVarCount++;
 			parser.report_info("Class array declared", classarrayname, classarraynameleft);
 		} else {
-			parser.report_semantic_error("Class array with name '" + classarrayname+ "' is alraedy declared", classarraynameleft);
+			parser.report_semantic_error("Class field with name '" + classarrayname+ "' is alraedy declared", classarraynameleft);
 		}
 	:}
 	;
@@ -592,11 +599,13 @@ formalparameters ::= formalparameters:nformalparamaters COMMA formalparameter
 
 formalparameter ::= type:type IDENTIFIER:name
 	{:
-		SymbolTable.insert(Obj.Var, name, type);
+		Obj localVar = SymbolTable.insert(Obj.Var, name, type);
+		/* localVar.setFpPos(currentMethod.getLocalSymbols().size() - 1); */
 	:}
 	| type:type IDENTIFIER:arrayname LBRACK RBRACK
 	{:
-		SymbolTable.insert(Obj.Var, arrayname, parser.newArrayType(type));
+		Obj localArray = SymbolTable.insert(Obj.Var, arrayname, parser.newArrayType(type));
+		/* localArray.setFpPos(currentMethod.getLocalSymbols().size() - 1); */
 	:}
 	;
 
@@ -609,10 +618,7 @@ type ::= IDENTIFIER:typename
 			RESULT = SymbolTable.noType;
 		} else if(Obj.Type == typeNode.getKind()) {
 			RESULT = typeNode.getType();
-		} else {
-			parser.report_semantic_error("'" + typename + "' doesn't represent a type", typenameleft);
-			RESULT = SymbolTable.noType;
-		}
+		} 
 	:}
 	;
 
@@ -850,7 +856,7 @@ printstatement ::= PRINT LPAREN expression:expression integerliteralopt:n RPAREN
 			Code.loadConst(n);
 			Code.put(Code.print);
 		} else {
-			parser.report_semantic_error("Expression isn't an int,char or bool type", expressionleft);
+			parser.report_semantic_error("'" + expression.getName() + "' isn't an int,char or bool type", expressionleft);
 		}
 	:}
 	;
@@ -891,12 +897,12 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 			}
 			Code.store(designator);
 		} else {
-			parser.report_semantic_error("Expression type must be assignable with '" + designator.getName() + "'", expressionleft);
+			parser.report_semantic_error("'" + expression.getName() + "' type must be assignable with '" + designator.getName() + "'", expressionleft);
 		}
 	:}
 	| designator assignoperator error:e 
 	{: 
-		parser.report_debug("Error recovery done", null, eleft); 
+		parser.report_debug("Error recovery done", ";", eleft); 
 	:}
 	| designator:designator 
 	{:
@@ -920,20 +926,26 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 				Code.put(Code.pop);
 			}
 		} else {
-			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
+			parser.report_semantic_error("'" + designator.getName() + "' must be a method", designatorleft);
 		}
 	:}
 	| designator:designator designatoroperator:operator
 	{:
 		if(parser.isAssignable(designator)) {
 			if(designator.getType().getKind() == Struct.Int) {
-				if(designator.getKind() == Obj.Elem) {
-					Code.put(Code.dup2);
+				if(designator.getKind() == Obj.Var && designator.getLevel() != 0) {
+					Code.put(Code.inc);
+					Code.put(designator.getAdr());
+					Code.put(operator);
+				} else {
+					if(designator.getKind() == Obj.Elem) {
+						Code.put(Code.dup2);
+					} 
+					Code.load(designator);
+					Code.loadConst(1);
+					Code.put(operator);
+					Code.store(designator);
 				}
-				Code.load(designator);
-				Code.loadConst(1);
-				Code.put(operator);
-				Code.store(designator);
 			} else {
 				parser.report_semantic_error("'" + designator.getName() + "' must be an int type", designatorleft);
 			}
@@ -944,11 +956,11 @@ designatorstatement ::= designator:designator assignoperator:assignoperator
 	;
 designatoroperator ::= PLUSPLUS
 	{:
-		RESULT = Code.add;
+		RESULT = 1;
 	:}
 	| MINUSMINUS
 	{:
-		RESULT = Code.sub;
+		RESULT = -1;
 	:}
 	;
 actparametersopt ::= actparameters:actparameters
@@ -1094,9 +1106,9 @@ expression ::= expressionleft:expressionleft
 					Code.put(Code.dup); 
 				}
 				Code.store(expressionleft);
-				RESULT = expressionleft;
+				RESULT = parser.newObj(Obj.Var, "", SymbolTable.intType);
 			} else {
-				parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleftleft);
+				parser.report_semantic_error("'" + expressionleft.getName() + "' and '" + e.getName() + " are not compatible or not int type", expressionleftleft);
 				RESULT = SymbolTable.noObj;
 			}
 		} else {
@@ -1125,7 +1137,7 @@ expressionleft ::= expressionleft:expressionleft
 			Code.put(addoperatorleft);
 			RESULT = parser.newObj(Obj.Con, "", SymbolTable.intType);
 		} else {
-			parser.report_semantic_error("Expression and terminal differ in type or not int type", expressionleftleft);
+				parser.report_semantic_error("'" + expressionleft.getName() + "' and '" + term.getName() + " are not compatible or not int type", expressionleftleft);
 			RESULT = SymbolTable.noObj;
 		}
 	:}
@@ -1140,10 +1152,11 @@ expressionleft ::= expressionleft:expressionleft
 				Code.load(term);
 			}
 			Code.put(Code.neg);
+			RESULT = parser.newObj(Obj.Var, "", SymbolTable.intType);
 		} else {
-			parser.report_semantic_error("Terminal isn't an int type", termleft);
+			parser.report_semantic_error("'" + term.getName() + "' isn't an int type", termleft);
+			RESULT = SymbolTable.noObj;
 		}
-		RESULT = term;
 	:}
 	;
 
@@ -1169,9 +1182,9 @@ term ::= termleft:termleft
 					Code.put(Code.dup); 
 				}
 				Code.store(termleft);
-				RESULT = termleft;
+				RESULT = parser.newObj(Obj.Var, "", SymbolTable.intType);
 			} else {
-				parser.report_semantic_error("Terminal and factor differ in type or not int type", termleftright);
+				parser.report_semantic_error("'" + termleft.getName() + "' and '" + termright.getName() + "' differ in type or not int type", termleftright);
 				RESULT = SymbolTable.noObj;
 			}
 		} else {
@@ -1200,7 +1213,7 @@ termleft ::= termleft:termleft
 			Code.put(muloperatorleft);
 			RESULT = parser.newObj(Obj.Con, "", SymbolTable.intType);
 		} else {
-			parser.report_semantic_error("Terminal and factor differ in type or not int type", termleftleft);
+			parser.report_semantic_error("'" + termleft.getName() + "' and '" + factor.getName() + "' differ in type or not int type", termleftleft);
 			RESULT = SymbolTable.noObj;
 		}
 	:}
@@ -1240,7 +1253,7 @@ factor ::= designator:designator
 			parser.report_info("'" + designator.getName() + "' found", parser.visitNode(designator), designatorleft);
 			RESULT = parser.newObj(Obj.Con, "", designator.getType());
 		} else {
-			parser.report_error("'" + designator.getName() + "' must be a method", designatorleft);
+			parser.report_semantic_error("'" + designator.getName() + "' must be a method", designatorleft);
 			RESULT = SymbolTable.noObj;
 		}
 	:}
@@ -1271,7 +1284,7 @@ factor ::= designator:designator
 		if(type.getKind() == Struct.Class) {
 			// TO DO: new class object
 		} else {
-			parser.report_semantic_error("Type ins't an inner defined class", typeleft);
+			parser.report_semantic_error("Type isn't an inner defined class", typeleft);
 		}
 		RESULT = classObj;
 	:}
@@ -1287,7 +1300,7 @@ factor ::= designator:designator
 				Code.put(parser.INIT_WORD_ARRAY);
 			}
 		} else {
-			parser.report_semantic_error("Expression isn't an int type", expressionleft);
+			parser.report_semantic_error("'" + expression.getName() + "' isn't an int type", expressionleft);
 		}
 		RESULT = arrayObj;
 	:}
@@ -1345,7 +1358,7 @@ indexexpression ::= LBRACK expression:expression RBRACK
 				elemObj = parser.newObj(Obj.Elem, currentArrayDesignator.getName() + "[" + expression.getName() + "]", currentArrayDesignator.getType().getElemType());
 				parser.report_info("'" + elemObj.getName() + "' found", parser.visitNode(currentArrayDesignator), expressionleft);
 			} else {
-				parser.report_semantic_error("Expression isn't an int type", expressionleft);
+			parser.report_semantic_error("'" + expression.getName() + "' isn't an int type", expressionleft);
 			}
 		}
 		RESULT = elemObj;

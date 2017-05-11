@@ -1,0 +1,60 @@
+program semantic
+int a, b[];
+int a;
+bools c;
+{
+	void voidmethod()
+	int d;
+	{
+		return d;
+	}
+	int nonvoidmethod()
+	{
+		return;
+	}
+	int formalmethod(int x, int b)
+	{
+		return x + b;
+	}
+	int main()
+	int i, t;
+	int i;
+	int x[], e[];
+	char c;
+	bool r;
+	{
+		x = new int[c];
+		break;
+		continue;
+		read(int);
+		read(x);
+		print(x);
+		return c;
+		c = x[0];
+		c++;
+		char++;
+		formalmethod(2);
+		formalmethod();
+		formalmethod(2, c);
+		if(c) {
+			//do something
+		}
+		if(x > e) {
+			// really?!
+		}
+		if( c > i) {
+			//should work...
+		}
+		a = c += i;
+		a = c + i;
+		a = -c;
+		a = c*= i;
+		a = c*i;
+		a = semantic;
+		a = i[t];
+		a = x[c];
+		a = abc;
+		a = int;
+		t(2, 3);
+	}
+}

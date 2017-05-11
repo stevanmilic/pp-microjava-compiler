@@ -19,7 +19,7 @@ dependencies {
 mainClassName = "parser.Parser"
 
 run {
-    args = ["src/test/resources/program.mj"]
+    args = ["src/test/resources/program_B.mj"]
 }
 
 task cup {

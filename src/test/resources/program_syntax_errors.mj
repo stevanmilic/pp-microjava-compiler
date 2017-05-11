@@ -1,0 +1,20 @@
+program syntax
+int a+;
+int b-, c;
+{
+	int test(int d-, int bc))
+	{
+	}
+	void main()
+	int z-, g;
+	int a, b, x[], i;
+	int d*, e
+	{
+		a = b/;
+		if(a<+b) {
+		}
+		x[0/] = 2;
+		for(i = 0; i<; i+){
+		}
+	}
+}
